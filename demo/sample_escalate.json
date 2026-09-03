@@ -1,0 +1,13 @@
+{
+  "id": "disp_demo_escalate_001",
+  "payment_id": "pay_demo_escalate_001",
+  "amount": 80000,
+  "reason_code": "goods_not_delivered",
+  "respond_by": 1735700000,
+  "status": "open",
+  "payment": {
+    "method": "upi",
+    "vpa": "customer_escalate@paytm",
+    "order_id": "order_demo_escalate_001"
+  }
+}
