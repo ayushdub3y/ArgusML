@@ -64,6 +64,9 @@ class WebhookHandler:
                 on_confirm_callback=self._finalize_accept
             )
 
+        from src.drift_monitor import DriftMonitor
+        self.drift_monitor = DriftMonitor()
+
         self.decided_disputes: Set[str] = set()
 
     def process_dispute_created(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -109,6 +112,7 @@ class WebhookHandler:
             exposure_count=exp_count,
             exposure_value=exp_value,
         )
+        self.drift_monitor.record_prediction(p)
 
         amount = int(payload.get("amount", 0))
 
