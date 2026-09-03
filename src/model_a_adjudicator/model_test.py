@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from src.model_a_adjudicator.predict import compute_shap_approximations, predict
+from src.model_a_adjudicator.predict import compute_feature_attributions, predict
 from src.model_a_adjudicator.train import out_of_time_split, prepare_xy, train_model
 
 
@@ -40,11 +40,11 @@ def test_model_training_and_calibration():
     assert np.all(probs >= 0.0) and np.all(probs <= 1.0)
 
 
-def test_predict_and_shap():
-    """Verify predict returns calibrated probability and valid SHAP contributions."""
+def test_predict_and_feature_attributions():
+    """Verify predict returns calibrated probability and valid feature attribution contributions."""
     dispute = {"amount": 250000}
     evidence = {
-        "order_id": "ord_shap",
+        "order_id": "ord_attr",
         "fulfillment_type": "physical",
         "delivery_otp_confirmed": True,
         "pod_document_id": "doc_pod",
@@ -56,8 +56,8 @@ def test_predict_and_shap():
         "time_to_dispute_days": 1,
     }
 
-    p, shap_vals, features = predict(dispute, evidence)
+    p, attr_vals, features = predict(dispute, evidence)
     assert 0.0 <= p <= 1.0
-    assert "delivery_otp_confirmed" in shap_vals
-    assert "cd1_cd2_position_score" in shap_vals
-    assert shap_vals["delivery_otp_confirmed"] > 0
+    assert "delivery_otp_confirmed" in attr_vals
+    assert "cd1_cd2_position_score" in attr_vals
+    assert attr_vals["delivery_otp_confirmed"] > 0

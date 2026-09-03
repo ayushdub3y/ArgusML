@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 class AcceptCheckpoint:
     """Single-tap human review card for auto-accept candidates (§6b).
 
-    Holds recommendation details, dispute deadline, SHAP explanations,
+    Holds recommendation details, dispute deadline, feature attributions,
     and handles idempotent confirmation by either a human reviewer or
     the deadline watchdog fallback.
     """
@@ -58,7 +58,7 @@ class AcceptCheckpoint:
         )
 
     def expand(self) -> Dict[str, Any]:
-        """Expand card for full reasoning breakdown, SHAP, and evidence records."""
+        """Expand card for full reasoning breakdown, feature attributions, and evidence records."""
         return {
             "dispute_id": self.dispute_id,
             "amount": self.amount,

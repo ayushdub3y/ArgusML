@@ -21,4 +21,4 @@
    Any generated narrative mentioning a document ID, concrete numeric timestamp (e.g. 10-digit Unix timestamp), courier name, or asserting OTP confirmation when absent/unconfirmed in the evidence record is HARD-BLOCKED. The failure is logged with specific reasons, and the draft is rejected.
 
 4. **Deterministic Fallback by Design (§12, §13):**
-   The fallback to `build_contest_payload_from_evidence(evidence, summary_text=human_notes)` is a permanent architectural safety feature, not interim scaffolding. If `ANTHROPIC_API_KEY` is not set, an external API error occurs, or validation fails, Aegis gracefully degrades to the verbatim evidence payload so that a valid merchant contest is never lost due to an LLM outage.
+   The fallback to `build_contest_payload_from_evidence(evidence, summary_text=human_notes)` is a permanent architectural safety feature, not interim scaffolding. If `GEMINI_API_KEY` is not set, an external API error occurs, or validation fails, ArgusML gracefully degrades to the verbatim evidence payload so that a valid merchant contest is never lost due to an LLM outage.

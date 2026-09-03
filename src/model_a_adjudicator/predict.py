@@ -1,7 +1,7 @@
-"""Implements Model A inference and SHAP explanation generation (§2 node E, §5)."""
+"""Implements Model A inference and directional feature attribution generation (§2 node E, §5)."""
 
 import os
-import pickle
+import joblib
 from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
@@ -25,19 +25,23 @@ def get_model(model_path: Optional[str] = None) -> Any:
         from src.model_a_adjudicator.train import run_training
         run_training()
 
-    with open(model_path, "rb") as f:
-        _MODEL_CACHE = pickle.load(f)
+    _MODEL_CACHE = joblib.load(model_path)
     return _MODEL_CACHE
 
 
-def compute_shap_approximations(
+def compute_feature_attributions(
     features: Dict[str, float],
     model: Any,
 ) -> Dict[str, float]:
-    """Compute directional feature attribution contributions (SHAP approximation) for audit trail (§5)."""
-    # Standard directional impact signs based on risk domain knowledge:
-    # Strong merchant proof (OTP, POD, digital redemption) -> decreases illegitimate dispute risk (p increases, meaning claim is illegitimate)
-    # RGNB override / high prior disputes -> increases illegitimacy probability
+    """Compute directional feature attribution contributions for audit trail and explainability (§5).
+
+    These are domain-weighted directional attributions based on the sign and magnitude
+    of each feature relative to the decision boundary. They indicate which evidence
+    signals contributed most to the risk score, enabling operator-level transparency.
+
+    Note: These are NOT SHAP values. For full model-agnostic explanations,
+    integrate TreeSHAP via the `shap` library (production roadmap item).
+    """
     contributions: Dict[str, float] = {}
     base_otp = features.get("delivery_otp_confirmed", 0.0)
     base_pod = features.get("has_pod_document", 0.0)
@@ -63,10 +67,10 @@ def predict(
     exposure_value: int = 0,
     model: Optional[Any] = None,
 ) -> Tuple[float, Dict[str, float], Dict[str, float]]:
-    """Predict calibrated p_illegitimate and generate SHAP explanations.
+    """Predict calibrated p_illegitimate and generate feature attributions.
 
     Returns:
-        Tuple of (p_illegitimate, shap_values_dict, raw_features_dict).
+        Tuple of (p_illegitimate, feature_attributions_dict, raw_features_dict).
     """
     if model is None:
         model = get_model()
@@ -83,5 +87,5 @@ def predict(
     probs = model.predict_proba(vec)[0]
     p_illegitimate = float(probs[1])
 
-    shap_values = compute_shap_approximations(features, model)
-    return p_illegitimate, shap_values, features
+    feature_attributions = compute_feature_attributions(features, model)
+    return p_illegitimate, feature_attributions, features

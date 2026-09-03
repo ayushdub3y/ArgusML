@@ -105,8 +105,8 @@ class WebhookHandler:
         dev_h = buyer_id.get("device_fingerprint_hash", "default_dev")
         exp_count, exp_value = self.exposure_store.get_exposure(vpa_h, dev_h, now_ts=dispute_ts)
 
-        # 5. Model A: Calibrated scoring + SHAP (§2 node E, §5)
-        p, shap_values, features = predict(
+        # 5. Model A: Calibrated scoring + feature attributions (§2 node E, §5)
+        p, feature_attributions, features = predict(
             dispute_payload=payload,
             evidence_record=evidence,
             exposure_count=exp_count,
@@ -136,7 +136,7 @@ class WebhookHandler:
                 rule_fired=rule_fired,
                 respond_by=respond_by,
                 features=features,
-                shap_values=shap_values,
+                shap_values=feature_attributions,
                 evidence=evidence,
                 buyer_dispute_history=evidence.get("buyer_dispute_history"),
                 exposure_counters=(exp_count, exp_value),
@@ -151,7 +151,7 @@ class WebhookHandler:
                 rule_fired=rule_fired,
                 actor="system",
                 features=features,
-                shap_values=shap_values,
+                shap_values=feature_attributions,
                 evidence=evidence,
                 exposure_counter=(exp_count, exp_value),
             )
@@ -173,7 +173,7 @@ class WebhookHandler:
                 rule_fired=rule_fired,
                 actor="system",
                 features=features,
-                shap_values=shap_values,
+                shap_values=feature_attributions,
                 evidence=evidence,
                 exposure_counter=(exp_count, exp_value),
             )
@@ -189,7 +189,7 @@ class WebhookHandler:
                 "respond_by": respond_by or 0,
                 "rule_fired": rule_fired,
                 "features": features,
-                "shap_values": shap_values,
+                "shap_values": feature_attributions,
                 "evidence": evidence,
                 "exposure_counters": (exp_count, exp_value),
             }
@@ -201,7 +201,7 @@ class WebhookHandler:
                 rule_fired=rule_fired,
                 actor="system",
                 features=features,
-                shap_values=shap_values,
+                shap_values=feature_attributions,
                 evidence=evidence,
                 exposure_counter=(exp_count, exp_value),
             )
@@ -322,12 +322,12 @@ def create_app(handler_instance: Optional[WebhookHandler] = None):
     from fastapi.responses import JSONResponse
 
     active_handler = handler_instance or handler
-    app = FastAPI(title="Aegis Dispute-Defense Engine", version="1.0.0")
+    app = FastAPI(title="ArgusML Dispute-Defense & Risk Gateway", version="1.0.0")
 
     # Check and log fail-open defaults
     if not os.environ.get("RAZORPAY_WEBHOOK_SECRET") or not os.environ.get("DASHBOARD_USERNAME"):
         logger.warning(
-            "WARNING: Aegis running with fail-open defaults (RAZORPAY_WEBHOOK_SECRET unset or DASHBOARD_USERNAME unset). "
+            "WARNING: ArgusML running with fail-open defaults (RAZORPAY_WEBHOOK_SECRET unset or DASHBOARD_USERNAME unset). "
             "Webhook signatures and/or dashboard auth are not enforced. Set these environment variables in production."
         )
 
@@ -363,5 +363,5 @@ def create_app(handler_instance: Optional[WebhookHandler] = None):
 if __name__ == "__main__":
     import uvicorn
     app = create_app()
-    print("Starting Aegis Webhook Listener on 0.0.0.0:8080...")
+    print("Starting ArgusML Webhook Listener on 0.0.0.0:8080...")
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")

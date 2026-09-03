@@ -1,4 +1,4 @@
-"""Implements the immutable audit log: features, SHAP, action, evidence payload, cumulative counters (§2, node L)."""
+"""Implements the immutable audit log: features, feature attributions, action, evidence payload, cumulative counters (§2, node L)."""
 
 import json
 import os

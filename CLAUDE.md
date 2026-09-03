@@ -1,4 +1,4 @@
-\# CLAUDE.md — Aegis project memory
+\# CLAUDE.md — ArgusML project memory
 
 
 

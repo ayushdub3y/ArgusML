@@ -2,7 +2,7 @@
 
 import json
 import os
-import pickle
+import joblib
 from typing import Any, Dict, List, Tuple
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
@@ -68,10 +68,9 @@ def train_model(X_train: np.ndarray, y_train: np.ndarray) -> Any:
 
 
 def save_model(model: Any, filepath: str) -> None:
-    """Serialize model artifact to disk."""
+    """Serialize model artifact to disk using joblib."""
     os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-    with open(filepath, "wb") as f:
-        pickle.dump(model, f)
+    joblib.dump(model, filepath)
 
 
 def run_training() -> str:

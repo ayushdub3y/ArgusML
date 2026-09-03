@@ -187,16 +187,16 @@ def test_assemble_fallback_when_no_credentials(sample_evidence, monkeypatch):
 
 def test_assemble_fallback_on_fact_validation_failure(sample_evidence, monkeypatch):
     """Verify assemble_contest_payload falls back to deterministic payload when LLM draft fails validation."""
-    monkeypatch.setattr("src.model_b_evidence_assembler.assemble._resolve_credentials", lambda: ("claude", "mock_key_test_123", "test"))
+    monkeypatch.setattr("src.model_b_evidence_assembler.assemble._resolve_credentials", lambda: ("gemini", "mock_gemini_key_123", "test"))
 
-    # Mock anthropic client to return a hallucinated document ID
-    mock_msg = MagicMock()
-    mock_msg.content = [MagicMock(text='{"summary": "Order order_demo_contest_001 delivered with doc_pod_hallucinated_888."}')]
+    # Mock Gemini client to return a hallucinated document ID
+    mock_response = MagicMock()
+    mock_response.text = '{"summary": "Order order_demo_contest_001 delivered with doc_pod_hallucinated_888."}'
 
     mock_client = MagicMock()
-    mock_client.messages.create.return_value = mock_msg
+    mock_client.models.generate_content.return_value = mock_response
 
-    with patch("anthropic.Anthropic", return_value=mock_client):
+    with patch("google.genai.Client", return_value=mock_client):
         payload = assemble_contest_payload(sample_evidence)
 
     # Should have fallen back to deterministic payload

@@ -1,4 +1,4 @@
-"""Global application state holder for Aegis (§2).
+"""Global application state holder for ArgusML (Section 2).
 
 Provides unified access to active persistent stores, escalation queue,
 pending accept checkpoints, and the central WebhookHandler.

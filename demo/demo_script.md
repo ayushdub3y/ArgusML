@@ -1,6 +1,6 @@
-# Aegis Demo Run-Sheet (§9)
+# ArgusML Demo Run-Sheet (§9)
 
-This script provides step-by-step instructions for demonstrating the three core Aegis dispute routing flows (Accept, Contest, Escalate) against test-mode webhooks.
+This script provides step-by-step instructions for demonstrating the three core ArgusML dispute routing flows (Accept, Contest, Escalate) against test-mode webhooks.
 
 ---
 
@@ -24,7 +24,7 @@ Seed the demo scenarios and start the webhook listener in the background:
 # 1. Seed mock evidence for the 3 demo scenarios
 python demo/seed_demo_evidence.py
 
-# 2. Start the Aegis webhook listener & operations dashboard (port 8080)
+# 2. Start the ArgusML webhook listener & operations dashboard (port 8080)
 python src/webhook_listener.py &
 ```
 

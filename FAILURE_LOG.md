@@ -1,6 +1,6 @@
 <!-- Implements the §0 Failure Recovery asset: dated record of wrong assumptions caught and corrected, with sources. -->
 
-# Aegis Failure Recovery Log
+# ArgusML Failure Recovery Log
 
 This document records architectural, algorithmic, and implementation assumptions caught and corrected during development, grounded in primary NPCI/Razorpay specifications and empirical verification.
 

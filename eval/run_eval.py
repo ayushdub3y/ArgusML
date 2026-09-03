@@ -215,7 +215,7 @@ def generate_metrics_markdown(metrics: Dict[str, Any]) -> str:
     accept_pct = metrics['accepted_count'] / metrics['n_eval'] * 100
     escalate_pct = metrics['escalated_count'] / metrics['n_eval'] * 100
 
-    return rf"""# Aegis Evaluation Metrics Report (§7)
+    return rf"""# ArgusML Evaluation Metrics Report (§7)
 
 > **Dataset Notice:** Evaluated on synthetic dispute and evidence records generated strictly according to §4 and §7 schemas with cited UPI P2M distributions.
 > **Split:** Strictly out-of-time holdout (latest 20% of synthetic dataset, N = {metrics['n_eval']}).

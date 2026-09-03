@@ -1,6 +1,6 @@
-"""HTTP UI routes, human-review endpoints, and dashboard auth gate (§2, §6b, §10).
+"""HTTP UI routes, human-review endpoints, and dashboard auth gate (Section 2, Section 6b, Section 10).
 
-Provides the complete operations console for Aegis:
+Provides the complete operations console for ArgusML (Argus Pipeline / Gateway):
 - Overview telemetry & actionable queue triage
 - Full disputes directory
 - Dispute investigation workflow with progressive disclosure
@@ -29,7 +29,7 @@ from src.model_b_evidence_assembler.assemble import (
     build_contest_payload_from_evidence,
 )
 
-logger = logging.getLogger("aegis.ui")
+logger = logging.getLogger("argus.ui")
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _METRICS_PATH = os.path.join(_REPO_ROOT, "METRICS.md")
@@ -154,15 +154,6 @@ def _model_b_status() -> Dict[str, Any]:
             "provider": "gemini",
             "fact_validation_enforced": True,
         }
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return {
-            "status": "Active",
-            "value": "Active",
-            "provider_name": "Anthropic Claude",
-            "detail": "Fact-validated evidence synthesis active",
-            "provider": "anthropic",
-            "fact_validation_enforced": True,
-        }
     return {
         "status": "Active",
         "value": "Active",
@@ -189,7 +180,7 @@ def require_dashboard_auth(authorization: Optional[str] = Header(None)) -> bool:
         raise HTTPException(
             status_code=401,
             detail="Authentication required",
-            headers={"WWW-Authenticate": 'Basic realm="Aegis Dashboard"'},
+            headers={"WWW-Authenticate": 'Basic realm="ArgusML Dashboard"'},
         )
 
     try:
@@ -200,14 +191,14 @@ def require_dashboard_auth(authorization: Optional[str] = Header(None)) -> bool:
         raise HTTPException(
             status_code=401,
             detail="Invalid authorization header format",
-            headers={"WWW-Authenticate": 'Basic realm="Aegis Dashboard"'},
+            headers={"WWW-Authenticate": 'Basic realm="ArgusML Dashboard"'},
         )
 
     if username != (expected_user or "") or password != (expected_pass or ""):
         raise HTTPException(
             status_code=401,
             detail="Invalid username or password",
-            headers={"WWW-Authenticate": 'Basic realm="Aegis Dashboard"'},
+            headers={"WWW-Authenticate": 'Basic realm="ArgusML Dashboard"'},
         )
 
     return True
@@ -807,7 +798,7 @@ def create_ui_router(handler: Any) -> APIRouter:
 
     @router.get("/v1/audit")
     async def get_audit_trail(dispute_id: Optional[str] = None, limit: int = 100, authorization: Optional[str] = Header(None)):
-        """Retrieve complete immutable audit log records with features, SHAP, and evidence payloads."""
+        """Retrieve complete immutable audit log records with features, feature attributions, and evidence payloads."""
         require_dashboard_auth(authorization)
         entries = handler.audit_log.get_entries(dispute_id=dispute_id, limit=limit)
         return JSONResponse(status_code=200, content={"audits": entries, "count": len(entries)})
@@ -868,7 +859,7 @@ def create_ui_router(handler: Any) -> APIRouter:
 
     @router.post("/accept_checkpoint/{dispute_id}/confirm")
     async def confirm_checkpoint(dispute_id: str):
-        """Confirm a pending accept checkpoint (§6b)."""
+        """Confirm a pending accept checkpoint (Section 6b)."""
         checkpoint = handler.pending_checkpoints.get(dispute_id)
         if not checkpoint:
             return JSONResponse(
@@ -888,7 +879,7 @@ def create_ui_router(handler: Any) -> APIRouter:
 
     @router.get("/accept_checkpoint/{dispute_id}/expand")
     async def expand_checkpoint(dispute_id: str):
-        """Expand card for full reasoning breakdown, SHAP, and evidence records."""
+        """Expand card for full reasoning breakdown, feature attributions, and evidence records."""
         checkpoint = handler.pending_checkpoints.get(dispute_id)
         if not checkpoint:
             return JSONResponse(
@@ -897,9 +888,14 @@ def create_ui_router(handler: Any) -> APIRouter:
             )
         return JSONResponse(status_code=200, content=checkpoint.expand())
 
+    @router.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        """Lightweight endpoint preventing 404 console noise in browser devtools."""
+        return Response(status_code=204)
+
     @router.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request, authorization: Optional[str] = Header(None)):
-        """Render the Aegis operations console SPA shell."""
+        """Render the ArgusML operations console SPA shell."""
         require_dashboard_auth(authorization)
         return HTMLResponse(content=_DASHBOARD_SHELL, status_code=200)
 
@@ -916,7 +912,8 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aegis — UPI Dispute Defense Engine</title>
+    <title>ArgusML — Argus Dispute & Risk Gateway</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1771,7 +1768,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                     </svg>
                 </div>
                 <div class="brand-name">
-                    Aegis <span class="brand-pill">UPI DEFENSE</span>
+                    ArgusML <span class="brand-pill">PIPELINE & GATEWAY</span>
                 </div>
             </div>
 
@@ -1872,7 +1869,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
     <div id="toast-container"></div>
 
     <script>
-    (function () {
+(function () {
         var state = {
             currentScreen: "overview",
             disputeId: null,
@@ -1887,12 +1884,60 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
 
         function showToast(message, type) {
             var c = document.getElementById("toast-container");
+            if (!c) return;
             var t = document.createElement("div");
             t.className = "toast";
             var color = type === "error" ? "var(--red)" : (type === "success" ? "var(--green)" : "var(--cyan)");
             t.innerHTML = '<span style="color:' + color + '">●</span> ' + message;
             c.appendChild(t);
             setTimeout(function () { t.remove(); }, 3500);
+        }
+
+        function copyTextToClipboard(text, successMsg) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function () {
+                    showToast(successMsg || "Copied to clipboard", "success");
+                }).catch(function () {
+                    fallbackCopy(text, successMsg);
+                });
+            } else {
+                fallbackCopy(text, successMsg);
+            }
+        }
+
+        function fallbackCopy(text, successMsg) {
+            var ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            ta.style.top = "0";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            try {
+                var successful = document.execCommand("copy");
+                if (successful) {
+                    showToast(successMsg || "Copied to clipboard", "success");
+                } else {
+                    showToast("Unable to copy to clipboard", "error");
+                }
+            } catch (err) {
+                showToast("Unable to copy to clipboard", "error");
+            }
+            document.body.removeChild(ta);
+        }
+
+        function safeFetch(url, options) {
+            return fetch(url, options).then(function (r) {
+                if (!r.ok) {
+                    return r.json().catch(function () { return {}; }).then(function (errBody) {
+                        var msg = errBody.detail || errBody.error || ("HTTP " + r.status);
+                        throw new Error(msg);
+                    });
+                }
+                return r.json();
+            });
         }
 
         // ---------------------------------------------------------------------
@@ -1903,30 +1948,77 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             var d;
             if (typeof ts === "number") {
                 d = new Date(ts > 1e11 ? ts : ts * 1000);
+            } else if (typeof ts === "string" && /^\d+$/.test(ts.trim())) {
+                var num = Number(ts.trim());
+                d = new Date(num > 1e11 ? num : num * 1000);
             } else {
                 d = new Date(ts);
             }
             if (isNaN(d.getTime())) return "No data available";
-            var opts = {
-                timeZone: "Asia/Kolkata",
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-                hour12: true
-            };
-            if (includeSeconds !== false) {
-                opts.second = "2-digit";
+            try {
+                var opts = {
+                    timeZone: "Asia/Kolkata",
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true
+                };
+                if (includeSeconds !== false) {
+                    opts.second = "2-digit";
+                }
+                var parts = new Intl.DateTimeFormat("en-IN", opts).format(d);
+                return parts.replace(/\b(am|pm)\b/i, function(m) { return m.toUpperCase(); }) + " IST";
+            } catch (e) {
+                var utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+                var ist = new Date(utc + (3600000 * 5.5));
+                var pad = function(n) { return (n < 10 ? "0" : "") + n; };
+                var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                var h = ist.getHours();
+                var ampm = h >= 12 ? "PM" : "AM";
+                h = h % 12;
+                h = h ? h : 12;
+                var res = pad(ist.getDate()) + " " + months[ist.getMonth()] + " " + ist.getFullYear() + ", " + pad(h) + ":" + pad(ist.getMinutes());
+                if (includeSeconds !== false) res += ":" + pad(ist.getSeconds());
+                return res + " " + ampm + " IST";
             }
-            var parts = new Intl.DateTimeFormat("en-IN", opts).format(d);
-            return parts.replace(/\b(am|pm)\b/i, function(m) { return m.toUpperCase(); }) + " IST";
+        }
+
+        function updateLiveClock() {
+            var el = document.getElementById("live-clock");
+            if (!el) return;
+            try {
+                var now = new Date();
+                var opts = {
+                    timeZone: "Asia/Kolkata",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: true
+                };
+                var timeStr = new Intl.DateTimeFormat("en-IN", opts).format(now);
+                el.textContent = "IST " + timeStr.replace(/\b(am|pm)\b/i, function(m) { return m.toUpperCase(); });
+            } catch (e) {
+                var d = new Date();
+                var utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+                var ist = new Date(utc + (3600000 * 5.5));
+                var h = ist.getHours();
+                var m = ist.getMinutes();
+                var s = ist.getSeconds();
+                var ampm = h >= 12 ? "PM" : "AM";
+                h = h % 12;
+                h = h ? h : 12;
+                var pad = function(n) { return (n < 10 ? "0" : "") + n; };
+                el.textContent = "IST " + pad(h) + ":" + pad(m) + ":" + pad(s) + " " + ampm;
+            }
         }
 
         window.currentInspectorJson = "";
 
         window.closeModal = function () {
-            document.getElementById("inspector-modal").classList.remove("open");
+            var m = document.getElementById("inspector-modal");
+            if (m) m.classList.remove("open");
         };
 
         window.openInspector = function (opts, fallbackData) {
@@ -1966,18 +2058,12 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
 
         window.copyModalJson = function () {
             if (!window.currentInspectorJson) return;
-            navigator.clipboard.writeText(window.currentInspectorJson)
-                .then(function () {
-                    var btn = document.getElementById("btn-copy-modal-json");
-                    if (btn) btn.textContent = "✓ Copied!";
-                    showToast("JSON payload copied to clipboard", "success");
-                    setTimeout(function () {
-                        if (btn) btn.textContent = "📋 Copy JSON";
-                    }, 2500);
-                })
-                .catch(function () {
-                    showToast("Could not copy to clipboard", "error");
-                });
+            copyTextToClipboard(window.currentInspectorJson, "JSON payload copied to clipboard");
+            var btn = document.getElementById("btn-copy-modal-json");
+            if (btn) {
+                btn.textContent = "✓ Copied!";
+                setTimeout(function () { if (btn) btn.textContent = "📋 Copy JSON"; }, 2500);
+            }
         };
 
         window.openDisputePayloadInspector = function () {
@@ -2021,38 +2107,22 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             if (e.key === "Escape") closeModal();
         });
 
-        function updateClock() {
-            var d = new Date();
-            var opts = {
-                timeZone: "Asia/Kolkata",
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                hour12: true
-            };
-            var formatted = new Intl.DateTimeFormat("en-IN", opts).format(d);
-            formatted = formatted.replace(/\b(am|pm)\b/i, function(m) { return m.toUpperCase(); }) + " IST";
-            var el = document.getElementById("live-clock");
-            if (el) el.textContent = formatted;
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
-
         // ---------------------------------------------------------------------
-        // Router
+        // Screen Navigation & Hash Routing
         // ---------------------------------------------------------------------
         function handleRouting() {
             var hash = window.location.hash || "#/overview";
-            var matchDisp = hash.match(/^#\/disputes\/(.+)$/);
+            document.querySelectorAll(".nav-item").forEach(function (el) {
+                el.classList.remove("active");
+            });
 
-            document.querySelectorAll(".nav-link").forEach(function (el) { el.classList.remove("active"); });
-
-            if (matchDisp) {
+            if (hash.indexOf("#/disputes/") === 0) {
+                var dispId = hash.substring("#/disputes/".length);
                 state.currentScreen = "investigation";
-                state.disputeId = matchDisp[1];
+                state.disputeId = dispId;
                 document.getElementById("nav-disputes").classList.add("active");
-                document.getElementById("breadcrumb-current").textContent = "Disputes / " + state.disputeId;
-                loadInvestigation(state.disputeId);
+                document.getElementById("breadcrumb-current").textContent = "Investigation: " + dispId;
+                loadInvestigation(dispId);
                 return;
             }
 
@@ -2109,18 +2179,19 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             if (state.isRefreshing) return;
             state.isRefreshing = true;
 
-            fetch("/dashboard/data")
-                .then(function (r) { return r.json(); })
+            safeFetch("/dashboard/data")
                 .then(function (data) {
                     state.dashboardData = data;
 
                     var badge = document.getElementById("review-badge");
                     var cpCount = (data.checkpoints || []).length;
-                    if (cpCount > 0) {
-                        badge.textContent = cpCount;
-                        badge.style.display = "inline-block";
-                    } else {
-                        badge.style.display = "none";
+                    if (badge) {
+                        if (cpCount > 0) {
+                            badge.textContent = cpCount;
+                            badge.style.display = "inline-block";
+                        } else {
+                            badge.style.display = "none";
+                        }
                     }
 
                     if (state.currentScreen === "overview") {
@@ -2132,28 +2203,33 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                 })
                 .catch(function (err) {
                     state.isRefreshing = false;
-                    if (!silent) showToast("Telemetry sync failed", "error");
+                    if (!silent) showToast("Telemetry sync failed: " + err.message, "error");
                 });
         }
 
-        document.getElementById("btn-refresh-stream").addEventListener("click", function () {
-            fetchTelemetry(false);
-            if (state.currentScreen === "investigation" && state.disputeId) {
-                loadInvestigation(state.disputeId);
-            }
-            showToast("Stream refreshed", "info");
-        });
+        var btnRefresh = document.getElementById("btn-refresh-stream");
+        if (btnRefresh) {
+            btnRefresh.addEventListener("click", function () {
+                fetchTelemetry(false);
+                if (state.currentScreen === "investigation" && state.disputeId) {
+                    loadInvestigation(state.disputeId);
+                }
+                showToast("Stream refreshed", "info");
+            });
+        }
 
-        document.getElementById("btn-seed-demo").addEventListener("click", function () {
-            fetch("/v1/demo/reset", { method: "POST" })
-                .then(function (r) { return r.json(); })
-                .then(function () {
-                    showToast("Demo evidence & scenarios re-seeded", "success");
-                    fetchTelemetry(false);
-                    handleRouting();
-                })
-                .catch(function () { showToast("Demo seeding failed", "error"); });
-        });
+        var btnSeed = document.getElementById("btn-seed-demo");
+        if (btnSeed) {
+            btnSeed.addEventListener("click", function () {
+                safeFetch("/v1/demo/reset", { method: "POST" })
+                    .then(function () {
+                        showToast("Demo evidence & scenarios re-seeded", "success");
+                        fetchTelemetry(false);
+                        handleRouting();
+                    })
+                    .catch(function (err) { showToast("Demo seeding failed: " + err.message, "error"); });
+            });
+        }
 
         // ---------------------------------------------------------------------
         // SCREEN 1: OVERVIEW
@@ -2173,23 +2249,27 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
 
             var actionRows = [];
             (data.escalations || []).forEach(function (esc) {
+                var riskStr = typeof esc.p === "number" ? (esc.p * 100).toFixed(1) + "%" : "High";
+                var slaStr = typeof esc.time_left === "number" ? (esc.time_left <= 0 ? "Overdue" : Math.floor(esc.time_left / 60) + "m left") : "Nominal";
                 actionRows.push({
                     id: esc.dispute_id,
                     amount: esc.amount_str,
-                    risk_pct: esc.p ? (esc.p * 100).toFixed(1) + "%" : "High",
+                    risk_pct: riskStr,
                     risk_class: "status-chip escalate",
-                    sla: esc.time_left <= 0 ? "Overdue" : Math.floor(esc.time_left / 60) + "m left",
+                    sla: slaStr,
                     trigger: esc.rule_fired === "velocity_cap_breached" ? "Cumulative Safety Cap" : (esc.rule_fired || "Review Required"),
                     type: "escalate"
                 });
             });
             (data.checkpoints || []).forEach(function (cp) {
+                var riskStr = typeof cp.p === "number" ? (cp.p * 100).toFixed(1) + "%" : "Low";
+                var slaStr = typeof cp.time_left === "number" ? (cp.time_left <= 0 ? "Overdue" : Math.floor(cp.time_left / 60) + "m left") : "Nominal";
                 actionRows.push({
                     id: cp.dispute_id,
                     amount: cp.amount_str,
-                    risk_pct: (cp.p * 100).toFixed(1) + "%",
+                    risk_pct: riskStr,
                     risk_class: "status-chip checkpoint",
-                    sla: cp.time_left <= 0 ? "Overdue" : Math.floor(cp.time_left / 60) + "m left",
+                    sla: slaStr,
                     trigger: "Auto-Accept Checkpoint",
                     type: "checkpoint"
                 });
@@ -2291,8 +2371,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             var container = document.getElementById("screen-container");
             container.innerHTML = '<div style="color:var(--text-ghost); font-family:var(--font-mono);">Loading disputes directory...</div>';
 
-            fetch("/v1/disputes")
-                .then(function (r) { return r.json(); })
+            safeFetch("/v1/disputes")
                 .then(function (resp) {
                     var disputes = resp.disputes || [];
                     state.allDisputes = disputes;
@@ -2303,11 +2382,12 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                     } else {
                         disputes.forEach(function (d) {
                             var bClass = d.state_badge === "contest" ? "status-chip contest" : (d.state_badge === "accept" ? "status-chip accept" : (d.state_badge === "checkpoint" ? "status-chip checkpoint" : "status-chip escalate"));
+                            var pStr = typeof d.p === "number" ? (d.p * 100).toFixed(1) + "%" : "—";
                             rowsHtml += '<tr class="clickable" onclick="location.hash=\'#/disputes/' + d.dispute_id + '\'">' +
                                 '<td><span class="code-chip">' + d.dispute_id + '</span></td>' +
-                                '<td><strong>' + d.amount_str + '</strong></td>' +
+                                '<td><strong>' + (d.amount_str || '₹0.00') + '</strong></td>' +
                                 '<td><span class="' + bClass + '">' + d.state + '</span></td>' +
-                                '<td><span class="code-chip">' + (d.p ? (d.p * 100).toFixed(1) + "%" : "—") + '</span></td>' +
+                                '<td><span class="code-chip">' + pStr + '</span></td>' +
                                 '<td style="font-family:var(--font-mono); color:var(--text-ghost);">' + (d.rule_fired || "—") + '</td>' +
                                 '<td><button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;">Investigate →</button></td>' +
                             '</tr>';
@@ -2324,8 +2404,8 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                             '</table>' +
                         '</div>';
                 })
-                .catch(function () {
-                    container.innerHTML = '<div style="color:var(--red);">Failed to load disputes directory</div>';
+                .catch(function (err) {
+                    container.innerHTML = '<div style="color:var(--red); padding:20px;">Failed to load disputes directory: ' + err.message + '</div>';
                 });
         }
 
@@ -2336,11 +2416,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             var container = document.getElementById("screen-container");
             container.innerHTML = '<div style="color:var(--text-ghost); font-family:var(--font-mono);">Loading investigation record for ' + disputeId + '...</div>';
 
-            fetch("/v1/disputes/" + encodeURIComponent(disputeId))
-                .then(function (r) {
-                    if (!r.ok) throw new Error("HTTP " + r.status);
-                    return r.json();
-                })
+            safeFetch("/v1/disputes/" + encodeURIComponent(disputeId))
                 .then(function (d) {
                     state.disputeDetail = d;
                     renderInvestigationScreen(d);
@@ -2348,7 +2424,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                 .catch(function (err) {
                     container.innerHTML = '<div style="color:var(--red); padding:20px;">' +
                         '<h3>Dispute Not Found</h3>' +
-                        '<p style="color:var(--text-ghost); margin-top:8px;">Dispute ID ' + disputeId + ' could not be located in SQLite stores.</p>' +
+                        '<p style="color:var(--text-ghost); margin-top:8px;">Dispute ID ' + disputeId + ' could not be located in SQLite stores (' + err.message + ').</p>' +
                         '<button class="btn btn-secondary" style="margin-top:14px;" onclick="location.hash=\'#/disputes\'">← Back to Disputes</button>' +
                     '</div>';
                 });
@@ -2358,6 +2434,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             var container = document.getElementById("screen-container");
             var ev = d.evidence || {};
             var exp = d.exposure || {};
+            var hasGeo = Array.isArray(ev.delivery_geotag) && ev.delivery_geotag.length >= 2;
             var signals = [
                 {
                     name: "Delivery Confirmation",
@@ -2367,9 +2444,9 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                 },
                 {
                     name: "Delivery Geotag Coordinates",
-                    badge: ev.delivery_geotag ? "Verified" : "Absent",
-                    badgeClass: ev.delivery_geotag ? "verified" : "absent",
-                    desc: ev.delivery_geotag ? "Coordinates: " + ev.delivery_geotag[0] + "° N, " + ev.delivery_geotag[1] + "° E (Geo-fence valid)" : "No courier geolocation recorded"
+                    badge: hasGeo ? "Verified" : "Absent",
+                    badgeClass: hasGeo ? "verified" : "absent",
+                    desc: hasGeo ? "Coordinates: " + ev.delivery_geotag[0] + "° N, " + ev.delivery_geotag[1] + "° E (Geo-fence valid)" : "No courier geolocation recorded"
                 },
                 {
                     name: "Courier Proof of Delivery (POD)",
@@ -2425,6 +2502,15 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             }
 
             var recBannerClass = d.recommendation && d.recommendation.indexOf("Contest") !== -1 ? "contest" : (d.recommendation && d.recommendation.indexOf("Accept") !== -1 ? "accept" : "escalate");
+            var riskPercent = typeof d.risk_percent === "number" ? d.risk_percent : (typeof d.p === "number" ? Math.round(d.p * 100) : 0);
+            var probStr = typeof d.p === "number" ? d.p.toFixed(3) : "—";
+
+            var shapRowsHtml = Object.keys(d.features || {}).map(function(k) {
+                var sv = (d.shap_values || {})[k];
+                var svStr = (typeof sv === "number") ? (sv >= 0 ? "+" : "") + sv.toFixed(3) : (sv !== undefined ? sv : "0.000");
+                var svColor = (typeof sv === "number" && sv > 0) ? "var(--cyan)" : ((typeof sv === "number" && sv < 0) ? "var(--amber)" : "var(--text-ghost)");
+                return '<tr><td><code>' + k + '</code></td><td>' + d.features[k] + '</td><td style="color:' + svColor + '; font-weight:600; font-family:var(--font-mono);">' + svStr + '</td></tr>';
+            }).join('');
 
             container.innerHTML = '' +
                 '<div style="margin-bottom:12px;">' +
@@ -2446,12 +2532,12 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                     '<div class="inv-summary-grid">' +
                         '<div class="inv-summary-item">' +
                             '<div class="inv-summary-label">Disputed Amount</div>' +
-                            '<div class="inv-summary-val">' + d.amount_str + '</div>' +
+                            '<div class="inv-summary-val">' + (d.amount_str || "₹0.00") + '</div>' +
                             '<div class="inv-summary-sub">P2M Merchant Settlement</div>' +
                         '</div>' +
                         '<div class="inv-summary-item">' +
                             '<div class="inv-summary-label">Claim Classification</div>' +
-                            '<div class="inv-summary-val" style="font-size:13px; color:var(--text-primary);">' + d.claim_code + '</div>' +
+                            '<div class="inv-summary-val" style="font-size:13px; color:var(--text-primary);">' + (d.claim_code || "UDIR Dispute") + '</div>' +
                             '<div class="inv-summary-sub">NPCI UDIR Framework</div>' +
                         '</div>' +
                         '<div class="inv-summary-item">' +
@@ -2461,8 +2547,8 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                         '</div>' +
                         '<div class="inv-summary-item">' +
                             '<div class="inv-summary-label">Investigation State</div>' +
-                            '<div class="inv-summary-val" style="font-size:13px; color:var(--cyan);">' + d.state + '</div>' +
-                            '<div class="inv-summary-sub">' + d.rule_fired + '</div>' +
+                            '<div class="inv-summary-val" style="font-size:13px; color:var(--cyan);">' + (d.state || "Active") + '</div>' +
+                            '<div class="inv-summary-sub">' + (d.rule_fired || "Evaluated") + '</div>' +
                         '</div>' +
                     '</div>' +
                 '</div>' +
@@ -2471,8 +2557,8 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                     '<div class="rec-left">' +
                         '<div class="rec-icon">' + (recBannerClass === 'contest' ? '🛡' : (recBannerClass === 'accept' ? '✓' : '⚠️')) + '</div>' +
                         '<div>' +
-                            '<div class="rec-title">' + d.recommendation + '</div>' +
-                            '<div class="rec-desc">' + d.recommendation_reason + '</div>' +
+                            '<div class="rec-title">' + (d.recommendation || "Adjudication Review") + '</div>' +
+                            '<div class="rec-desc">' + (d.recommendation_reason || "Deterministic policy evaluation.") + '</div>' +
                         '</div>' +
                     '</div>' +
                     '<button class="btn btn-secondary" onclick="document.getElementById(\'contest-section\').scrollIntoView({behavior:\'smooth\'})">Jump to Submission ↓</button>' +
@@ -2483,24 +2569,19 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                         '<div class="card" style="margin-bottom:16px;">' +
                             '<div class="card-label"><span>1. Risk Assessment & Contributing Signals</span> <span class="code-chip">Calibrated Assessment</span></div>' +
                             '<div style="display:flex; align-items:center; gap:16px; margin:16px 0 10px;">' +
-                                '<div style="width:64px; height:64px; border-radius:50%; border:3px solid ' + (d.risk_percent >= 70 ? 'var(--red)' : 'var(--green)') + '; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700;">' + d.risk_percent + '%</div>' +
+                                '<div style="width:64px; height:64px; border-radius:50%; border:3px solid ' + (riskPercent >= 70 ? 'var(--red)' : 'var(--green)') + '; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700;">' + riskPercent + '%</div>' +
                                 '<div>' +
-                                    '<div style="font-weight:700; color:' + (d.risk_percent >= 70 ? 'var(--red)' : 'var(--green)') + ';">' + d.risk_label + '</div>' +
-                                    '<div style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-top:2px;">Evaluated probability: ' + d.p + ' · Risk Level: ' + d.risk_label + '</div>' +
+                                    '<div style="font-weight:700; color:' + (riskPercent >= 70 ? 'var(--red)' : 'var(--green)') + ';">' + (d.risk_label || "Risk Assessed") + '</div>' +
+                                    '<div style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-top:2px;">Evaluated probability: ' + probStr + ' · Risk Level: ' + (d.risk_label || "Evaluated") + '</div>' +
                                 '</div>' +
                             '</div>' +
                             '<div class="signal-grid">' + signalsHtml + '</div>' +
 
-                            '<div class="drawer-toggle" onclick="var el=document.getElementById(\'shap-drawer\'); el.classList.toggle(\'open\');">▶ View Detailed ML Diagnostics & Feature Attributions</div>' +
+                            '<div class="drawer-toggle" onclick="var el=document.getElementById(\'shap-drawer\'); if (el) el.classList.toggle(\'open\');">▶ View Detailed ML Diagnostics & Feature Attributions</div>' +
                             '<div class="drawer-content" id="shap-drawer">' +
                                 '<table class="ops-table" style="font-size:11px;">' +
                                     '<thead><tr><th>Feature</th><th>Raw Value</th><th>Attribution</th></tr></thead>' +
-                                    '<tbody>' +
-                                        Object.keys(d.features || {}).map(function(k) {
-                                            var sv = (d.shap_values || {})[k];
-                                            return '<tr><td><code>' + k + '</code></td><td>' + d.features[k] + '</td><td style="color:' + (sv > 0 ? 'var(--cyan)' : 'var(--text-ghost)') + ';">' + (sv !== undefined ? sv : '0.000') + '</td></tr>';
-                                        }).join('') +
-                                    '</tbody>' +
+                                    '<tbody>' + (shapRowsHtml || '<tr><td colspan="3">No feature attributions recorded</td></tr>') + '</tbody>' +
                                 '</table>' +
                             '</div>' +
                         '</div>' +
@@ -2517,7 +2598,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
 
                     '<div>' +
                         '<div class="card" style="margin-bottom:16px;">' +
-                            '<div class="card-label"><span>3. Cumulative Payer Exposure</span> <span class="status-chip ' + (exp.is_breached ? 'escalate' : 'accept') + '">' + exp.cap_status + '</span></div>' +
+                            '<div class="card-label"><span>3. Cumulative Payer Exposure</span> <span class="status-chip ' + (exp.is_breached ? 'escalate' : 'accept') + '">' + (exp.cap_status || 'SAFE ZONE') + '</span></div>' +
                             '<div style="margin:14px 0;">' +
                                 '<div style="font-size:12px; margin-bottom:6px;"><span style="color:var(--text-muted)">VPA Identity:</span> <span style="font-weight:500; color:var(--text-primary);">Verified identity record</span></div>' +
                                 '<div style="font-size:12px; margin-bottom:10px;"><span style="color:var(--text-muted)">Device:</span> <span style="font-weight:500; color:var(--text-primary);">Linked device record</span></div>' +
@@ -2531,13 +2612,13 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                                 '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:#0d121c; padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border);">' +
                                     '<div>' +
                                         '<div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Past 30D Claims</div>' +
-                                        '<div style="font-size:16px; font-weight:700; color:#fff;">' + exp.auto_accepted_count + ' Cases</div>' +
-                                        '<div style="font-size:10px; color:var(--text-muted);">Safety Cap: ' + exp.cap_count + '</div>' +
+                                        '<div style="font-size:16px; font-weight:700; color:#fff;">' + (exp.auto_accepted_count !== undefined ? exp.auto_accepted_count : 0) + ' Cases</div>' +
+                                        '<div style="font-size:10px; color:var(--text-muted);">Safety Cap: ' + (exp.cap_count || 3) + '</div>' +
                                     '</div>' +
                                     '<div>' +
                                         '<div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Claimed Volume</div>' +
-                                        '<div style="font-size:16px; font-weight:700; color:#fff;">' + exp.auto_accepted_value_str + '</div>' +
-                                        '<div style="font-size:10px; color:var(--text-muted);">Safety Cap: ' + exp.cap_value_str + '</div>' +
+                                        '<div style="font-size:16px; font-weight:700; color:#fff;">' + (exp.auto_accepted_value_str || "₹0.00") + '</div>' +
+                                        '<div style="font-size:10px; color:var(--text-muted);">Safety Cap: ' + (exp.cap_value_str || "₹5,000.00") + '</div>' +
                                     '</div>' +
                                 '</div>' +
                             '</div>' +
@@ -2551,50 +2632,58 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                     '</div>' +
                 '</div>';
 
-            document.getElementById("btn-action-accept").addEventListener("click", function () {
-                if (!confirm("Are you sure you want to concede this dispute and trigger merchant settlement loss?")) return;
-                fetch("/v1/disputes/" + encodeURIComponent(d.dispute_id) + "/accept", { method: "POST" })
-                    .then(function (r) { return r.json(); })
-                    .then(function () {
-                        showToast("Dispute accepted and settled via Razorpay API", "success");
-                        loadInvestigation(d.dispute_id);
-                        fetchTelemetry(true);
-                    })
-                    .catch(function () { showToast("Accept action failed", "error"); });
-            });
+            var btnAccept = document.getElementById("btn-action-accept");
+            if (btnAccept) {
+                btnAccept.addEventListener("click", function () {
+                    if (!confirm("Are you sure you want to concede this dispute and trigger merchant settlement loss?")) return;
+                    safeFetch("/v1/disputes/" + encodeURIComponent(d.dispute_id) + "/accept", { method: "POST" })
+                        .then(function () {
+                            showToast("Dispute accepted and settled via Razorpay API", "success");
+                            loadInvestigation(d.dispute_id);
+                            fetchTelemetry(true);
+                        })
+                        .catch(function (err) { showToast("Accept action failed: " + err.message, "error"); });
+                });
+            }
 
-            document.getElementById("btn-action-contest").addEventListener("click", function () {
-                var notes = prompt("Enter optional merchant contest notes for NPCI arbitration (or leave blank to use verified evidence):");
-                if (notes === null) return;
-                fetch("/v1/disputes/" + encodeURIComponent(d.dispute_id) + "/contest", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ notes: notes })
-                })
-                    .then(function (r) { return r.json(); })
-                    .then(function () {
-                        showToast("Contest submission dispatched to Razorpay API with verified proof", "success");
-                        loadInvestigation(d.dispute_id);
-                        fetchTelemetry(true);
+            var btnContest = document.getElementById("btn-action-contest");
+            if (btnContest) {
+                btnContest.addEventListener("click", function () {
+                    var notes = prompt("Enter optional merchant contest notes for NPCI arbitration (or leave blank to use verified evidence):");
+                    if (notes === null) return;
+                    safeFetch("/v1/disputes/" + encodeURIComponent(d.dispute_id) + "/contest", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ notes: notes })
                     })
-                    .catch(function () { showToast("Contest action failed", "error"); });
-            });
+                        .then(function () {
+                            showToast("Contest submission dispatched to Razorpay API with verified proof", "success");
+                            loadInvestigation(d.dispute_id);
+                            fetchTelemetry(true);
+                        })
+                        .catch(function (err) { showToast("Contest action failed: " + err.message, "error"); });
+                });
+            }
 
-            document.getElementById("btn-action-escalate").addEventListener("click", function () {
-                fetch("/v1/disputes/" + encodeURIComponent(d.dispute_id) + "/escalate", { method: "POST" })
-                    .then(function (r) { return r.json(); })
-                    .then(function () {
-                        showToast("Dispute escalated to Tier 2 review queue", "success");
-                        loadInvestigation(d.dispute_id);
-                        fetchTelemetry(true);
-                    })
-                    .catch(function () { showToast("Escalation failed", "error"); });
-            });
+            var btnEscalate = document.getElementById("btn-action-escalate");
+            if (btnEscalate) {
+                btnEscalate.addEventListener("click", function () {
+                    safeFetch("/v1/disputes/" + encodeURIComponent(d.dispute_id) + "/escalate", { method: "POST" })
+                        .then(function () {
+                            showToast("Dispute escalated to Tier 2 review queue", "success");
+                            loadInvestigation(d.dispute_id);
+                            fetchTelemetry(true);
+                        })
+                        .catch(function (err) { showToast("Escalation failed: " + err.message, "error"); });
+                });
+            }
 
-            document.getElementById("btn-copy-rebuttal").addEventListener("click", function () {
-                navigator.clipboard.writeText(rebuttalText);
-                showToast("Contest rebuttal text copied to clipboard", "success");
-            });
+            var btnCopyRebuttal = document.getElementById("btn-copy-rebuttal");
+            if (btnCopyRebuttal) {
+                btnCopyRebuttal.addEventListener("click", function () {
+                    copyTextToClipboard(rebuttalText, "Contest rebuttal text copied to clipboard");
+                });
+            }
         }
 
         // ---------------------------------------------------------------------
@@ -2616,22 +2705,23 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                 cpCardsHtml = '<div class="card" style="text-align:center; padding:32px; color:var(--text-ghost); font-family:var(--font-mono);">Zero pending accept checkpoints · All low-risk candidates confirmed</div>';
             } else {
                 checkpoints.forEach(function (cp) {
-                    var slaStr = (cp.time_left <= 0 ? 'Overdue' : Math.floor(cp.time_left/60) + 'm remaining') + (cp.respond_by ? ' · Deadline: ' + formatIST(cp.respond_by) : '');
+                    var slaStr = (typeof cp.time_left === "number" ? (cp.time_left <= 0 ? "Overdue" : Math.floor(cp.time_left / 60) + "m remaining") : "Nominal") + (cp.respond_by ? " · Deadline: " + formatIST(cp.respond_by) : "");
+                    var pStr = typeof cp.p === "number" ? (cp.p * 100).toFixed(1) + "%" : "—";
                     cpCardsHtml += '<div class="review-card">' +
                         '<div class="review-card-head">' +
                             '<div>' +
                                 '<span class="code-chip" style="font-size:13px; font-weight:600;">' + cp.dispute_id + '</span>' +
                                 '<span class="status-chip checkpoint" style="margin-left:8px;">Awaiting Single-Tap Confirmation</span>' +
                             '</div>' +
-                            '<div style="font-family:var(--font-mono); font-size:12px; color:' + (cp.time_left <= 0 ? 'var(--red)' : 'var(--amber)') + ';">SLA: ' + slaStr + '</div>' +
+                            '<div style="font-family:var(--font-mono); font-size:12px; color:' + (typeof cp.time_left === "number" && cp.time_left <= 0 ? 'var(--red)' : 'var(--amber)') + ';">SLA: ' + slaStr + '</div>' +
                         '</div>' +
                         '<div class="review-metric-strip">' +
-                            '<div><div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Amount</div><div style="font-size:16px; font-weight:700;">' + cp.amount_str + '</div></div>' +
-                            '<div><div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Risk Score</div><div style="font-size:16px; font-weight:700; color:var(--green);">' + (cp.p * 100).toFixed(1) + '%</div></div>' +
+                            '<div><div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Amount</div><div style="font-size:16px; font-weight:700;">' + (cp.amount_str || '—') + '</div></div>' +
+                            '<div><div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Risk Score</div><div style="font-size:16px; font-weight:700; color:var(--green);">' + pStr + '</div></div>' +
                             '<div><div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Routing Policy</div><div style="font-size:13px; font-weight:600; color:var(--cyan);">Auto-Accept Claim</div></div>' +
                             '<div><div style="font-size:10px; color:var(--text-ghost); text-transform:uppercase;">Cumulative Exposure</div><div style="font-size:13px; font-weight:600; color:var(--green);">Safe Zone (&lt;₹5k)</div></div>' +
                         '</div>' +
-                        '<div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">' + cp.one_liner + '</div>' +
+                        '<div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">' + (cp.one_liner || 'Pending human verification') + '</div>' +
                         '<div class="review-actions-bar">' +
                             '<button class="btn btn-secondary" onclick="location.hash=\'#/disputes/' + cp.dispute_id + '\'">Escalate to Full Investigation</button>' +
                             '<button class="btn btn-success" onclick="confirmCheckpointFromQueue(\'' + cp.dispute_id + '\', this)">✓ Confirm & Accept</button>' +
@@ -2647,10 +2737,11 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                 escalations.forEach(function (esc) {
                     var trig = esc.rule_fired;
                     if (trig === "velocity_cap_breached") trig = "Cumulative safety cap reached";
+                    var pStr = typeof esc.p === "number" ? (esc.p * 100).toFixed(1) + "%" : "High";
                     escRowsHtml += '<tr class="clickable" onclick="location.hash=\'#/disputes/' + esc.dispute_id + '\'">' +
                         '<td><span class="code-chip">' + esc.dispute_id + '</span></td>' +
-                        '<td><strong>' + esc.amount_str + '</strong></td>' +
-                        '<td><span class="status-chip escalate">' + (esc.p ? (esc.p * 100).toFixed(1) + "%" : "High") + '</span></td>' +
+                        '<td><strong>' + (esc.amount_str || '—') + '</strong></td>' +
+                        '<td><span class="status-chip escalate">' + pStr + '</span></td>' +
                         '<td>' + trig + '</td>' +
                         '<td><button class="btn btn-primary" style="padding:2px 8px; font-size:11px;">Triage →</button></td>' +
                     '</tr>';
@@ -2666,7 +2757,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                         '<div class="rec-icon">🛡</div>' +
                         '<div>' +
                             '<div class="rec-title">Accountability Safeguard · Single-Tap Flow</div>' +
-                            '<div class="rec-desc">Aegis routes low-risk recommendations to this queue so an operator can confirm automated settlement without friction. No typing or complex forms required.</div>' +
+                            '<div class="rec-desc">ArgusML routes low-risk recommendations to this queue so an operator can confirm automated settlement without friction. No typing or complex forms required.</div>' +
                         '</div>' +
                     '</div>' +
                 '</div>' +
@@ -2686,16 +2777,15 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
         window.confirmCheckpointFromQueue = function (disputeId, btn) {
             btn.disabled = true;
             btn.textContent = "Confirming…";
-            fetch("/v1/disputes/" + encodeURIComponent(disputeId) + "/accept", { method: "POST" })
-                .then(function (r) { return r.json(); })
+            safeFetch("/v1/disputes/" + encodeURIComponent(disputeId) + "/accept", { method: "POST" })
                 .then(function () {
                     showToast("Checkpoint confirmed and accepted", "success");
                     fetchTelemetry(false);
                 })
-                .catch(function () {
+                .catch(function (err) {
                     btn.disabled = false;
                     btn.textContent = "✓ Confirm & Accept";
-                    showToast("Confirmation failed", "error");
+                    showToast("Confirmation failed: " + err.message, "error");
                 });
         };
 
@@ -2706,8 +2796,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             var container = document.getElementById("screen-container");
             container.innerHTML = '<div style="color:var(--text-ghost); font-family:var(--font-mono);">Loading audit trail...</div>';
 
-            fetch("/v1/audit?limit=100")
-                .then(function (r) { return r.json(); })
+            safeFetch("/v1/audit?limit=100")
                 .then(function (resp) {
                     var audits = resp.audits || [];
                     state.auditLog = audits;
@@ -2741,8 +2830,8 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                             '</table>' +
                         '</div>';
                 })
-                .catch(function () {
-                    container.innerHTML = '<div style="color:var(--red);">Failed to load audit trail</div>';
+                .catch(function (err) {
+                    container.innerHTML = '<div style="color:var(--red); padding:20px;">Failed to load audit trail: ' + err.message + '</div>';
                 });
         }
 
@@ -2753,8 +2842,7 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
             var container = document.getElementById("screen-container");
             container.innerHTML = '<div style="color:var(--text-ghost); font-family:var(--font-mono);">Loading model governance data...</div>';
 
-            fetch("/v1/model_health")
-                .then(function (r) { return r.json(); })
+            safeFetch("/v1/model_health")
                 .then(function (data) {
                     state.modelHealth = data;
                     var mA = data.model_a || {};
@@ -2821,11 +2909,13 @@ _DASHBOARD_SHELL = r"""<!DOCTYPE html>
                             '</div>' +
                         '</div>';
                 })
-                .catch(function () {
-                    container.innerHTML = '<div style="color:var(--red);">Failed to load model governance data</div>';
+                .catch(function (err) {
+                    container.innerHTML = '<div style="color:var(--red); padding:20px;">Failed to load model governance data: ' + err.message + '</div>';
                 });
         }
 
+        updateLiveClock();
+        setInterval(updateLiveClock, 1000);
         fetchTelemetry(true);
         handleRouting();
         setInterval(function () { fetchTelemetry(true); }, 8000);

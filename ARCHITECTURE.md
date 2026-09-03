@@ -1,4 +1,4 @@
-# Aegis — UPI P2M Dispute-Defense Engine
+# ArgusML — UPI P2M Dispute-Defense & Risk Gateway
 ### Final Architecture — Razorpay AI Buildathon, Track 02 (AI Risk Manager)
 
 > This document is written to be dropped into the repo as `ARCHITECTURE.md` directly. It is deliberately scoped to **one class of loss**, per the track's own bar, and built deep rather than wide.
@@ -193,7 +193,7 @@ EV_contest = −(1 − p)(V + C_penalty) − C_contest
 ## 8. Repo structure (this is graded directly — "Build Quality")
 
 ```
-aegis/
+ArgusML/
 ├── README.md                 # problem, architecture diagram, how to run, results
 ├── ARCHITECTURE.md            # this document
 ├── FAILURE_LOG.md             # dated record of wrong assumptions found + corrected — Failure Recovery asset
@@ -286,7 +286,7 @@ If time is genuinely short, P0 alone — done correctly, with a real `METRICS.md
 
 ## 12. Defense-only statement (state this explicitly — it's a disqualification bar, not a suggestion)
 
-Aegis never fabricates evidence, never alters or spoofs delivery/courier records, and never contests a claim without evidence traceable to the merchant's own fulfillment record. The fact-validation layer (§5) blocks any LLM-drafted field that doesn't match the source record rather than silently dropping it. The system only ever takes one of three defensive actions — accept, contest-with-real-evidence, or escalate — and cannot be directed toward offensive use by construction. Every auto-accept additionally passes a deterministic cumulative-exposure gate (§6b) and requires a single human confirmation before the API call fires, so no identity can extract unbounded value by staying under any one static per-dispute threshold.
+ArgusML never fabricates evidence, never alters or spoofs delivery/courier records, and never contests a claim without evidence traceable to the merchant's own fulfillment record. The fact-validation layer (§5) blocks any LLM-drafted field that doesn't match the source record rather than silently dropping it. The system only ever takes one of three defensive actions — accept, contest-with-real-evidence, or escalate — and cannot be directed toward offensive use by construction. Every auto-accept additionally passes a deterministic cumulative-exposure gate (§6b) and requires a single human confirmation before the API call fires, so no identity can extract unbounded value by staying under any one static per-dispute threshold.
 
 ---
 

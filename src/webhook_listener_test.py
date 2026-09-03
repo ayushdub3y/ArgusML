@@ -473,10 +473,10 @@ def test_http_dashboard_auth_gate(clean_handler, monkeypatch):
     client_open = TestClient(app_open)
     resp_open = client_open.get("/")
     assert resp_open.status_code == 200
-    assert "Aegis — UPI Dispute Defense Engine" in resp_open.text
+    assert "ArgusML — Argus Dispute & Risk Gateway" in resp_open.text
 
     # State B: Credentials set -> rejects without auth, allows with valid Basic auth
-    username = "admin_aegis"
+    username = "admin_argus"
     password = "SuperSecretPassword123"
     monkeypatch.setenv("DASHBOARD_USERNAME", username)
     monkeypatch.setenv("DASHBOARD_PASSWORD", password)
@@ -490,7 +490,7 @@ def test_http_dashboard_auth_gate(clean_handler, monkeypatch):
     assert "WWW-Authenticate" in resp_unauth.headers
 
     # 2. Invalid credentials -> 401
-    bad_auth = base64.b64encode(b"admin_aegis:wrongpassword").decode("utf-8")
+    bad_auth = base64.b64encode(b"admin_argus:wrongpassword").decode("utf-8")
     resp_bad = client_auth.get("/", headers={"Authorization": f"Basic {bad_auth}"})
     assert resp_bad.status_code == 401
 
@@ -498,7 +498,7 @@ def test_http_dashboard_auth_gate(clean_handler, monkeypatch):
     valid_auth = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("utf-8")
     resp_ok = client_auth.get("/", headers={"Authorization": f"Basic {valid_auth}"})
     assert resp_ok.status_code == 200
-    assert "Aegis — UPI Dispute Defense Engine" in resp_ok.text
+    assert "ArgusML — Argus Dispute & Risk Gateway" in resp_ok.text
 
 
 def test_persistence_and_rebound_closure_across_restart(tmp_path):

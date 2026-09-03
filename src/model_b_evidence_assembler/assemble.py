@@ -5,7 +5,7 @@ ARCHITECTURE.md references:
   it only drafts human-readable prose within the contest path chosen upstream by decision_engine.py).
 - §5 (Modeling: Model B Evidence Assembler — JSON-schema-constrained output populating
   Razorpay's real contest payload: summary + typed evidence like shipping_proof).
-- §12 (Defense-only statement: Aegis never fabricates evidence. The fact-validation layer
+- §12 (Defense-only statement: ArgusML never fabricates evidence. The fact-validation layer
   blocks any LLM-drafted field that doesn't match the source record rather than silently dropping it).
 - §13 (Explicit guardrails against scope creep: Sandbox/test-mode only, graceful degradation).
 
@@ -69,7 +69,7 @@ except ImportError:
 from src.model_b_evidence_assembler.validate_facts import validate_facts
 from src.razorpay_client import build_contest_payload_from_evidence
 
-logger = logging.getLogger("aegis.model_b")
+logger = logging.getLogger("argus.model_b")
 
 _PROMPT_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "prompt_template.txt")
 
@@ -89,31 +89,26 @@ def _resolve_credentials() -> Tuple[Optional[str], Optional[str], str]:
     3. api.env file in workspace root
 
     Returns:
-        (provider, api_key, source_info): Provider ('gemini' or 'claude'), secret key, and logged source description.
+        (provider, api_key, source_info): Provider ('gemini'), secret key, and logged source description.
     """
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     dot_env_path = os.path.join(repo_root, ".env")
     api_env_path = os.path.join(repo_root, "api.env")
 
     # Step 1: Check existing OS environment
-    for key_var in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
+    for key_var in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
         val = os.environ.get(key_var)
         if val:
-            # Auto-detect Google key format in case key was labeled ANTHROPIC_API_KEY
-            if key_var == "GEMINI_API_KEY" or val.startswith("AQ.") or val.startswith("AIzaSy") or not val.startswith("sk-ant-"):
-                return "gemini", val, f"OS environment variable ({key_var})"
-            return "claude", val, "OS environment variable (ANTHROPIC_API_KEY)"
+            return "gemini", val, f"OS environment variable ({key_var})"
 
     # Step 2: Check .env
     try:
         from dotenv import dotenv_values  # type: ignore
         dot_vals = dotenv_values(dot_env_path) if os.path.exists(dot_env_path) else {}
-        for key_var in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
+        for key_var in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
             val = dot_vals.get(key_var)
             if val:
-                if key_var == "GEMINI_API_KEY" or val.startswith("AQ.") or val.startswith("AIzaSy") or not val.startswith("sk-ant-"):
-                    return "gemini", val, f".env file ({key_var})"
-                return "claude", val, ".env file (ANTHROPIC_API_KEY)"
+                return "gemini", val, f".env file ({key_var})"
     except ImportError:
         pass
 
@@ -121,12 +116,10 @@ def _resolve_credentials() -> Tuple[Optional[str], Optional[str], str]:
     try:
         from dotenv import dotenv_values  # type: ignore
         api_vals = dotenv_values(api_env_path) if os.path.exists(api_env_path) else {}
-        for key_var in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY"):
+        for key_var in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
             val = api_vals.get(key_var)
             if val:
-                if key_var == "GEMINI_API_KEY" or val.startswith("AQ.") or val.startswith("AIzaSy") or not val.startswith("sk-ant-"):
-                    return "gemini", val, f"api.env file ({key_var})"
-                return "claude", val, "api.env file (ANTHROPIC_API_KEY)"
+                return "gemini", val, f"api.env file ({key_var})"
     except ImportError:
         pass
 
@@ -164,31 +157,16 @@ def _call_gemini_api(prompt: str, api_key: str) -> str:
     raise RuntimeError("No Gemini candidate models succeeded")
 
 
-def _call_anthropic_api(prompt: str, api_key: str) -> str:
-    """Call Anthropic API using anthropic SDK."""
-    import anthropic  # type: ignore
-
-    model_name = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
-    client = anthropic.Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model=model_name,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text.strip()
-
-
 def assemble_contest_payload(
     evidence: Dict[str, Any],
     human_notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Assemble a rich contest payload using Model B LLM with fact-validation (§5, §12).
 
-    Supports Google Gemini (primary: sub-second SLA latency for UDIR deadlines) and
-    Anthropic Claude (fallback: deep analytical reasoning). Credentials are discovered
-    via explicit logged precedence: OS env -> .env -> api.env.
+    Uses Google Gemini API via google-genai SDK (sub-second SLA latency for UDIR deadlines).
+    Credentials are discovered via explicit logged precedence: OS env -> .env -> api.env.
 
-    If neither credential is configured, an API error occurs, the response is malformed,
+    If credentials are not configured, an API error occurs, the response is malformed,
     or validate_facts rejects the draft, this function logs a warning with specific failure
     reasons and cleanly returns the deterministic fallback payload from
     `build_contest_payload_from_evidence(evidence, summary_text=human_notes)`.
@@ -229,14 +207,10 @@ def assemble_contest_payload(
         logger.warning("Failed to prepare Model B prompt template: %s. Falling back.", e)
         return build_contest_payload_from_evidence(evidence, summary_text=human_notes)
 
-    # Call LLM based on resolved provider
+    # Call Gemini API
     try:
-        if provider == "gemini":
-            logger.info("Invoking Model B using Gemini API (§5)...")
-            response_text = _call_gemini_api(prompt, api_key)
-        else:
-            logger.info("Invoking Model B using Anthropic API (§5)...")
-            response_text = _call_anthropic_api(prompt, api_key)
+        logger.info("Invoking Model B using Google Gemini API (§5)...")
+        response_text = _call_gemini_api(prompt, api_key)
     except Exception as e:
         logger.warning("Model B LLM API call failed: %s. Falling back to deterministic payload.", e)
         return build_contest_payload_from_evidence(evidence, summary_text=human_notes)

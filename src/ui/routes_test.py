@@ -1,4 +1,4 @@
-"""Test suite for new operations console REST endpoints and workflows (§2, §5, §6b)."""
+"""Test suite for new operations console REST endpoints and workflows (Section 2, Section 5, Section 6b)."""
 
 import pytest
 from fastapi.testclient import TestClient

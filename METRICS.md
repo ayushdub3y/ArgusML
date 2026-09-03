@@ -1,4 +1,4 @@
-# Aegis Evaluation Metrics Report (§7)
+# ArgusML Evaluation Metrics Report (§7)
 
 > **Dataset Notice:** Evaluated on synthetic dispute and evidence records generated strictly according to §4 and §7 schemas with cited UPI P2M distributions.
 > **Split:** Strictly out-of-time holdout (latest 20% of synthetic dataset, N = 1200).

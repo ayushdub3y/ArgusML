@@ -3,7 +3,7 @@
 ARCHITECTURE.md references:
 - §5 (Modeling: Model B Evidence Assembler — reject any generated field referencing
   a document ID, timestamp, or courier name absent from the source evidence record).
-- §12 (Defense-only statement: Aegis never fabricates evidence. The fact-validation
+- §12 (Defense-only statement: ArgusML never fabricates evidence. The fact-validation
   layer blocks any LLM-drafted field that doesn't match the source record rather
   than silently dropping it).
 """
