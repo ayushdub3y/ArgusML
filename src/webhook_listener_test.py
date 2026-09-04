@@ -277,7 +277,10 @@ def test_two_entry_audit_log_flow(clean_handler):
     entries_step1 = clean_handler.audit_log.get_entries("disp_two_log_001")
     assert len(entries_step1) == 1
     assert entries_step1[0]["actor"] == "system"
-    assert entries_step1[0]["decision"] == "accept"
+    assert entries_step1[0]["decision"] == "recommend_accept"
+    assert entries_step1[0]["event_type"] == "system_recommendation"
+    assert entries_step1[0]["recommendation"] == "accept"
+    assert entries_step1[0]["razorpay_dispatched"] is False
 
     confirmed = checkpoint.confirm(actor="human")
     assert confirmed is True
@@ -285,9 +288,12 @@ def test_two_entry_audit_log_flow(clean_handler):
     entries_step2 = clean_handler.audit_log.get_entries("disp_two_log_001")
     assert len(entries_step2) == 2
     assert entries_step2[0]["actor"] == "system"
-    assert entries_step2[0]["decision"] == "accept"
+    assert entries_step2[0]["decision"] == "recommend_accept"
+    assert entries_step2[0]["event_type"] == "system_recommendation"
     assert entries_step2[1]["actor"] == "human"
     assert entries_step2[1]["decision"] == "accept"
+    assert entries_step2[1]["event_type"] == "action_execution"
+    assert entries_step2[1]["razorpay_dispatched"] is True
     assert entries_step2[1]["rule_fired"] == "accept_checkpoint_confirmed:human"
 
 

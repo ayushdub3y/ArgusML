@@ -203,5 +203,48 @@ def validate_facts(
         if coord not in valid_coords:
             reasons.append(f"Fabricated geotag coordinate: {coord}")
 
+    # 7. Digital redemption affirmative claim validation
+    redemption_claimed = bool(re.search(
+        r"\b(?:voucher|code|license|token|coupon|gift card)\s+(?:was\s+)?(?:redeemed|activated|used|claimed|downloaded)\b|\b(?:was\s+)?(?:redeemed|activated)\s+(?:online|by user|by customer|in-app)\b",
+        summary_text,
+        re.IGNORECASE,
+    ))
+    actual_redemption_ts = evidence.get("digital_redemption_ts")
+    if redemption_claimed and actual_redemption_ts is None:
+        reasons.append("Fabricated claim: asserted digital voucher was redeemed when evidence indicates unredeemed")
+
+    # 8. Fulfillment type contradiction validation
+    fulfillment_type = str(evidence.get("fulfillment_type", "")).strip().lower()
+    if fulfillment_type == "digital_voucher":
+        courier_delivery_claimed = bool(re.search(
+            r"\b(?:physical delivery|courier delivered|doorstep delivery|handed to|driver delivered|delivered to doorstep|pod document|proof of delivery document)\b",
+            summary_text,
+            re.IGNORECASE,
+        ))
+        if courier_delivery_claimed:
+            reasons.append("Contradictory claim: asserted physical doorstep delivery for digital voucher fulfillment")
+    elif fulfillment_type == "physical":
+        if redemption_claimed:
+            reasons.append("Contradictory claim: asserted digital voucher redemption for physical goods fulfillment")
+
+    # 9. Delivery confirmation claim when evidence has neither OTP nor POD
+    delivery_confirmed_claimed = bool(re.search(
+        r"\b(?:recipient|customer|buyer)\s+(?:confirmed|signed for|acknowledged)\s+(?:delivery|receipt)\b|\b(?:confirmed|signed)\s+by\s+(?:recipient|customer|buyer)\b",
+        summary_text,
+        re.IGNORECASE,
+    ))
+    has_pod = bool(evidence.get("pod_document_id"))
+    if delivery_confirmed_claimed and not actual_otp_confirmed and not has_pod:
+        reasons.append("Fabricated claim: asserted recipient confirmed/signed for delivery when neither OTP nor POD exists in evidence")
+
+    # 10. Affirmative fulfillment assertion when evidence lacks both OTP and POD
+    affirmative_fulfillment_claimed = bool(re.search(
+        r"\b(?:fulfilled\s+legitimately|legitimate\s+fulfillment|delivery\s+verified|verified\s+delivery|goods\s+delivered\s+successfully|confirmed\s+successful\s+delivery)\b",
+        summary_text,
+        re.IGNORECASE,
+    ))
+    if affirmative_fulfillment_claimed and not actual_otp_confirmed and not has_pod:
+        reasons.append("Unsupported claim: asserted legitimate/verified fulfillment when evidence lacks both OTP confirmation and POD document")
+
     is_valid = len(reasons) == 0
     return is_valid, reasons

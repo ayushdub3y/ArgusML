@@ -40,10 +40,28 @@ class AuditLog:
                     shap_values TEXT,
                     evidence TEXT,
                     exposure_counter TEXT,
-                    timestamp INTEGER NOT NULL
+                    timestamp INTEGER NOT NULL,
+                    event_type TEXT NOT NULL DEFAULT 'action_execution',
+                    recommendation TEXT,
+                    human_decision TEXT,
+                    razorpay_dispatched INTEGER NOT NULL DEFAULT 0,
+                    execution_status TEXT NOT NULL DEFAULT 'executed'
                 )
                 """
             )
+            # Ensure backward compatibility with existing SQLite files
+            existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(audit_trail)").fetchall()}
+            if "event_type" not in existing_cols:
+                conn.execute("ALTER TABLE audit_trail ADD COLUMN event_type TEXT NOT NULL DEFAULT 'action_execution'")
+            if "recommendation" not in existing_cols:
+                conn.execute("ALTER TABLE audit_trail ADD COLUMN recommendation TEXT")
+            if "human_decision" not in existing_cols:
+                conn.execute("ALTER TABLE audit_trail ADD COLUMN human_decision TEXT")
+            if "razorpay_dispatched" not in existing_cols:
+                conn.execute("ALTER TABLE audit_trail ADD COLUMN razorpay_dispatched INTEGER NOT NULL DEFAULT 0")
+            if "execution_status" not in existing_cols:
+                conn.execute("ALTER TABLE audit_trail ADD COLUMN execution_status TEXT NOT NULL DEFAULT 'executed'")
+
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_audit_dispute
@@ -63,8 +81,15 @@ class AuditLog:
         evidence: Optional[Dict[str, Any]] = None,
         exposure_counter: Optional[Any] = None,
         timestamp: Optional[int] = None,
+        event_type: str = "action_execution",
+        recommendation: Optional[str] = None,
+        human_decision: Optional[str] = None,
+        razorpay_dispatched: bool = False,
+        execution_status: str = "executed",
+        notes: Optional[str] = None,
+        **kwargs: Any,
     ) -> int:
-        """Append an entry to the immutable audit log."""
+        """Append an entry to the immutable audit log with full semantic audit tracking."""
         if timestamp is None:
             timestamp = int(time.time())
 
@@ -72,13 +97,15 @@ class AuditLog:
         shap_json = json.dumps(shap_values) if shap_values is not None else None
         evidence_json = json.dumps(evidence) if evidence is not None else None
         exposure_json = json.dumps(exposure_counter) if exposure_counter is not None else None
+        dispatched_int = 1 if razorpay_dispatched else 0
 
         with self._get_conn() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO audit_trail
-                (dispute_id, decision, rule_fired, actor, features, shap_values, evidence, exposure_counter, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (dispute_id, decision, rule_fired, actor, features, shap_values, evidence, exposure_counter, timestamp,
+                 event_type, recommendation, human_decision, razorpay_dispatched, execution_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     dispute_id,
@@ -90,6 +117,11 @@ class AuditLog:
                     evidence_json,
                     exposure_json,
                     timestamp,
+                    event_type,
+                    recommendation,
+                    human_decision,
+                    dispatched_int,
+                    execution_status,
                 ),
             )
             conn.commit()
@@ -124,6 +156,7 @@ class AuditLog:
 
             entries = []
             for r in rows:
+                col_keys = r.keys() if hasattr(r, "keys") else []
                 entries.append({
                     "id": r["id"],
                     "dispute_id": r["dispute_id"],
@@ -135,6 +168,11 @@ class AuditLog:
                     "evidence": json.loads(r["evidence"]) if r["evidence"] else None,
                     "exposure_counter": json.loads(r["exposure_counter"]) if r["exposure_counter"] else None,
                     "timestamp": r["timestamp"],
+                    "event_type": r["event_type"] if "event_type" in col_keys else "action_execution",
+                    "recommendation": r["recommendation"] if "recommendation" in col_keys else None,
+                    "human_decision": r["human_decision"] if "human_decision" in col_keys else None,
+                    "razorpay_dispatched": bool(r["razorpay_dispatched"]) if "razorpay_dispatched" in col_keys else False,
+                    "execution_status": r["execution_status"] if "execution_status" in col_keys else "executed",
                 })
             return entries
 

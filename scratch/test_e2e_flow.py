@@ -94,6 +94,17 @@ def run_tests():
     assert len(missing) == 0, f"Unmatched DOM IDs: {missing}"
     print(f"[PASS] All {len(get_elem_ids)} frontend DOM elements verified 100% matched")
 
+    # 3b. Telemetry feed integrity
+    print("\n--- Step 3b: Live Telemetry Feed (/dashboard/data) Integrity ---")
+    status, raw = get("/dashboard/data")
+    assert status == 200, f"/dashboard/data returned {status}: {raw}"
+    dash_data = json.loads(raw)
+    assert "stats" in dash_data
+    assert "checkpoints" in dash_data
+    assert "escalations" in dash_data
+    assert "audits" in dash_data
+    print(f"[PASS] /dashboard/data verified cleanly: {len(dash_data.get('escalations', []))} escalations, {len(dash_data.get('checkpoints', []))} checkpoints")
+
     # 4. Demo reset & disputes directory
     print("\n--- Step 4: Demo State Reset & Disputes Directory ---")
     status, raw = post("/v1/demo/reset")

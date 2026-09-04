@@ -219,6 +219,7 @@ ArgusML/
 │   ├── razorpay_client_test.py
 │   ├── audit_log.py                 # immutable SQLite audit log
 │   ├── audit_log_test.py
+│   ├── adversarial_boundary_test.py # 16 focused boundary tests (economic edges, velocity, HMAC, replay)
 │   ├── ui/
 │   │   └── routes.py                # operator dashboard, checkpoint confirm/expand, auth gate
 │   ├── human_review/
@@ -280,7 +281,7 @@ If time is genuinely short, P0 alone — done correctly, with a real `METRICS.md
 
 ## 11. Differentiation, stated plainly (say this out loud in the pitch)
 
-"Chargeback evidence responder" is one of Razorpay's own listed example directions, so expect company. The win isn't the category — it's mechanical correctness: UPI disputes run on NPCI's UDIR/RGNB rails, not Visa/Mastercard representment, and a system built on copied card-scheme assumptions (a 5–7 day response window, a "Compelling Evidence" package) will be visibly wrong to anyone who actually knows the rail. A real, working sandbox integration against Razorpay's actual Disputes API — not a mocked one — plus an honestly reported false-positive cost, is rarer than it should be in this pool.
+"Chargeback evidence responder" is one of Razorpay's own listed example directions, so expect company. The win isn't the category — it's mechanical correctness: UPI disputes run on NPCI's UDIR/RGNB rails, not Visa/Mastercard representment, and a system built on copied card-scheme assumptions (a 5–7 day response window, a "Compelling Evidence" package) will be visibly wrong to anyone who actually knows the rail. A real, working test-mode integration against Razorpay's actual Disputes API (with sandbox mock fallback for offline demo) plus an honestly reported false-positive cost and evidence degradation ablations, is rarer than it should be in this pool.
 
 ---
 

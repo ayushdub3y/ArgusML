@@ -264,3 +264,74 @@ def test_custom_unlisted_courier_in_evidence_accepted(sample_evidence):
     is_valid, reasons = validate_facts(draft, custom_evidence)
     assert is_valid is True
     assert reasons == []
+
+
+def test_fabricated_digital_redemption_fails_when_unredeemed():
+    """Verify claiming digital voucher was redeemed when evidence indicates unredeemed is rejected."""
+    unredeemed_evidence = {
+        "order_id": "order_vouch_unredeemed_01",
+        "fulfillment_type": "digital_voucher",
+        "digital_redemption_ts": None,
+    }
+    draft = {
+        "summary": "Order order_vouch_unredeemed_01 digital voucher was redeemed online by customer."
+    }
+    is_valid, reasons = validate_facts(draft, unredeemed_evidence)
+    assert is_valid is False
+    assert any("asserted digital voucher was redeemed" in r for r in reasons)
+
+
+def test_valid_digital_redemption_passes():
+    """Verify legitimate digital voucher redemption claims pass when backed by evidence."""
+    redeemed_evidence = {
+        "order_id": "order_vouch_redeemed_01",
+        "fulfillment_type": "digital_voucher",
+        "digital_redemption_ts": 1735601500,
+    }
+    draft = {
+        "summary": "Order order_vouch_redeemed_01 digital voucher was redeemed at timestamp 1735601500."
+    }
+    is_valid, reasons = validate_facts(draft, redeemed_evidence)
+    assert is_valid is True
+    assert reasons == []
+
+
+def test_contradictory_fulfillment_type_digital_claiming_doorstep_fails():
+    """Verify asserting physical courier/doorstep delivery for a digital voucher order is rejected."""
+    digital_evidence = {
+        "order_id": "order_vouch_physical_fail",
+        "fulfillment_type": "digital_voucher",
+        "digital_redemption_ts": 1735601500,
+    }
+    draft = {
+        "summary": "Order order_vouch_physical_fail was courier delivered to doorstep at timestamp 1735601500."
+    }
+    is_valid, reasons = validate_facts(draft, digital_evidence)
+    assert is_valid is False
+    assert any("asserted physical doorstep delivery for digital voucher" in r for r in reasons)
+
+
+def test_contradictory_fulfillment_type_physical_claiming_digital_fails(sample_evidence):
+    """Verify asserting digital voucher redemption for a physical shipment order is rejected."""
+    draft = {
+        "summary": "Order order_demo_contest_001 digital voucher was redeemed online by the buyer."
+    }
+    is_valid, reasons = validate_facts(draft, sample_evidence)
+    assert is_valid is False
+    assert any("asserted digital voucher redemption for physical goods" in r for r in reasons)
+
+
+def test_unverified_delivery_confirmation_fails_without_otp_or_pod():
+    """Verify asserting customer confirmed delivery when neither OTP nor POD is on record fails."""
+    unverified_evidence = {
+        "order_id": "order_unverified_deliv_01",
+        "fulfillment_type": "physical",
+        "delivery_otp_confirmed": False,
+        "pod_document_id": None,
+    }
+    draft = {
+        "summary": "Order order_unverified_deliv_01 shows recipient confirmed delivery at the residence."
+    }
+    is_valid, reasons = validate_facts(draft, unverified_evidence)
+    assert is_valid is False
+    assert any("neither OTP nor POD exists in evidence" in r for r in reasons)

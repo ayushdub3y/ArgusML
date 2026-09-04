@@ -154,3 +154,40 @@ def test_v1_audit_and_model_health(ops_test_client):
     assert "drift" in health_data
     assert "security" in health_data
     assert health_data["model_a"]["precision"] == 94.4
+
+
+def test_dashboard_data_handles_none_p_and_reopened_disputes(ops_test_client):
+    """Verify GET /dashboard/data cleanly serializes escalations with p=None and reopen states."""
+    client, handler = ops_test_client
+
+    # Add an escalation with p=None (simulating exceptional reopen or deterministic velocity safeguard)
+    handler.escalation_queue.add({
+        "dispute_id": "disp_test_reopen_001",
+        "amount": 50000,
+        "p": None,
+        "respond_by": 1735700000,
+        "rule_fired": "exceptional_operator_reopen",
+        "notes": "Verified carrier documentation provided",
+    })
+
+    resp = client.get("/dashboard/data")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "checkpoints" in data
+    assert "escalations" in data
+    assert "stats" in data
+
+    # Verify that p is None and did not trigger a TypeError
+    reopen_item = next((e for e in data["escalations"] if e["dispute_id"] == "disp_test_reopen_001"), None)
+    assert reopen_item is not None
+    assert reopen_item["p"] is None
+    assert reopen_item["rule_fired"] == "exceptional_operator_reopen"
+
+    # Verify detail retrieval for reopened dispute
+    detail_resp = client.get("/v1/disputes/disp_test_reopen_001")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["p"] is None
+    assert detail["is_model_evaluated"] is False
+    assert "Exceptional" in detail["risk_label"]
+

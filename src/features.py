@@ -35,7 +35,10 @@ def assemble_features(
     Returns:
         Dict mapping feature name to numeric value.
     """
-    amount = float(dispute_payload.get("amount", 0))
+    try:
+        amount = max(0.0, float(dispute_payload.get("amount", 0) or 0.0))
+    except (ValueError, TypeError):
+        amount = 0.0
 
     if evidence_record is None:
         return {

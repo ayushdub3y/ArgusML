@@ -20,6 +20,7 @@ except ImportError:
 
 from src.audit_log import AuditLog
 from src.decision_engine import decide
+from src.dispute_state_machine import DisputeEvent, DisputeState, DisputeStateMachine
 from src.evidence_store import EvidenceStore
 from src.exposure_store import ExposureStore
 from src.human_review.accept_checkpoint import AcceptCheckpoint, AcceptCheckpointStore
@@ -48,12 +49,16 @@ class WebhookHandler:
         razorpay_client: Optional[RazorpayClient] = None,
         escalation_queue: Optional[EscalationQueue] = None,
         pending_checkpoints: Optional[Any] = None,
+        state_machine: Optional[DisputeStateMachine] = None,
     ):
         self.evidence_store = evidence_store or EvidenceStore()
         self.exposure_store = exposure_store or ExposureStore()
         self.audit_log = audit_log or AuditLog()
         self.razorpay_client = razorpay_client or RazorpayClient()
         self.escalation_queue = escalation_queue or EscalationQueue()
+        self.state_machine = state_machine or DisputeStateMachine(
+            db_path=getattr(self.audit_log, "db_path", None)
+        )
 
         if pending_checkpoints is not None:
             self.pending_checkpoints = pending_checkpoints
@@ -71,9 +76,12 @@ class WebhookHandler:
 
     def process_dispute_created(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Process an incoming payment.dispute.created webhook event (§2)."""
-        dispute_id = payload.get("id", "unknown_disp")
-        payment = payload.get("payment", {})
-        method = payment.get("method")
+        if not isinstance(payload, dict):
+            return {"status": "ignored", "reason": "malformed_payload", "dispute_id": "unknown"}
+
+        dispute_id = str(payload.get("id") or "unknown_disp")
+        payment = payload.get("payment") or {}
+        method = payment.get("method") if isinstance(payment, dict) else None
         reason_code = payload.get("reason_code")
 
         # 1. Reason-code + payment-method deterministic filter (§3, §4)
@@ -81,28 +89,35 @@ class WebhookHandler:
             logger.info("Ignoring out-of-scope dispute %s (method=%s, reason=%s)", dispute_id, method, reason_code)
             return {"status": "ignored", "reason": "out_of_scope", "dispute_id": dispute_id}
 
-        # 2. Webhook idempotency (§4)
-        if dispute_id in self.decided_disputes:
+        # 2. Webhook idempotency (§4) — check both in-memory set and persistent audit log
+        if dispute_id in self.decided_disputes or bool(self.audit_log.get_entries(dispute_id=dispute_id, limit=1)):
             logger.info("Ignoring duplicate webhook for dispute %s", dispute_id)
             return {"status": "duplicate_webhook_ignored", "dispute_id": dispute_id}
 
         self.decided_disputes.add(dispute_id)
 
         # 3. Lookup merchant fulfillment evidence (§2 node C)
-        order_id = payment.get("order_id", "")
+        order_id = payment.get("order_id", "") if isinstance(payment, dict) else ""
         evidence = self.evidence_store.get_evidence(order_id) or {}
 
         # 4. Lookup cumulative exposure for identity (§2 node D2, §6b)
-        dispute_ts = payload.get("created_at")
-        if dispute_ts is None:
-            if payload.get("respond_by"):
-                dispute_ts = int(payload["respond_by"]) - 86400
-            else:
+        dispute_ts_raw = payload.get("created_at")
+        if dispute_ts_raw is not None:
+            try:
+                dispute_ts = int(dispute_ts_raw)
+            except (ValueError, TypeError):
                 dispute_ts = int(time.time())
+        elif payload.get("respond_by") is not None:
+            try:
+                dispute_ts = int(payload["respond_by"]) - 86400
+            except (ValueError, TypeError):
+                dispute_ts = int(time.time())
+        else:
+            dispute_ts = int(time.time())
 
-        buyer_id = evidence.get("buyer_identity", {})
-        vpa_h = buyer_id.get("vpa_hash", "default_vpa")
-        dev_h = buyer_id.get("device_fingerprint_hash", "default_dev")
+        buyer_id = evidence.get("buyer_identity") or {}
+        vpa_h = buyer_id.get("vpa_hash") or "default_vpa"
+        dev_h = buyer_id.get("device_fingerprint_hash") or "default_dev"
         exp_count, exp_value = self.exposure_store.get_exposure(vpa_h, dev_h, now_ts=dispute_ts)
 
         # 5. Model A: Calibrated scoring + feature attributions (§2 node E, §5)
@@ -114,7 +129,10 @@ class WebhookHandler:
         )
         self.drift_monitor.record_prediction(p)
 
-        amount = int(payload.get("amount", 0))
+        try:
+            amount = max(0, int(payload.get("amount", 0) or 0))
+        except (ValueError, TypeError):
+            amount = 0
 
         # 6. Deterministic EV & Velocity routing (§2 node F, §6, §6b)
         action, rule_fired, _ = decide(
@@ -143,17 +161,28 @@ class WebhookHandler:
                 on_confirm=self._finalize_accept,
             )
             self.pending_checkpoints[dispute_id] = checkpoint
+            self.state_machine.transition(
+                dispute_id=dispute_id,
+                event=DisputeEvent.ROUTE_ACCEPT_CHECKPOINT,
+                actor="system",
+                notes=rule_fired,
+            )
 
-            # Initial audit entry: recommendation written by system
+            # Initial audit entry: recommendation written by system (NOT an executed accept)
             self.audit_log.record(
                 dispute_id=dispute_id,
-                decision="accept",
+                decision="recommend_accept",
                 rule_fired=rule_fired,
                 actor="system",
                 features=features,
                 shap_values=feature_attributions,
                 evidence=evidence,
                 exposure_counter=(exp_count, exp_value),
+                event_type="system_recommendation",
+                recommendation="accept",
+                human_decision=None,
+                razorpay_dispatched=False,
+                execution_status="pending_human_confirmation",
             )
 
             return {
@@ -166,6 +195,12 @@ class WebhookHandler:
             # Auto-contest with validated real evidence (§2 node H–J, §12)
             contest_payload = assemble_contest_payload(evidence)
             self.razorpay_client.contest_dispute(dispute_id, contest_payload)
+            self.state_machine.transition(
+                dispute_id=dispute_id,
+                event=DisputeEvent.ROUTE_AUTO_CONTEST,
+                actor="system",
+                notes=rule_fired,
+            )
 
             self.audit_log.record(
                 dispute_id=dispute_id,
@@ -176,6 +211,11 @@ class WebhookHandler:
                 shap_values=feature_attributions,
                 evidence=evidence,
                 exposure_counter=(exp_count, exp_value),
+                event_type="action_execution",
+                recommendation="contest",
+                human_decision=None,
+                razorpay_dispatched=True,
+                execution_status="executed",
             )
 
             return {"status": "contested", "dispute_id": dispute_id}
@@ -194,6 +234,12 @@ class WebhookHandler:
                 "exposure_counters": (exp_count, exp_value),
             }
             self.escalation_queue.add(queue_item)
+            self.state_machine.transition(
+                dispute_id=dispute_id,
+                event=DisputeEvent.ROUTE_ESCALATE,
+                actor="system",
+                notes=rule_fired,
+            )
 
             self.audit_log.record(
                 dispute_id=dispute_id,
@@ -204,6 +250,11 @@ class WebhookHandler:
                 shap_values=feature_attributions,
                 evidence=evidence,
                 exposure_counter=(exp_count, exp_value),
+                event_type="system_recommendation",
+                recommendation="escalate",
+                human_decision=None,
+                razorpay_dispatched=False,
+                execution_status="pending_human_decision",
             )
 
             return {"status": "escalated", "dispute_id": dispute_id}
@@ -211,23 +262,30 @@ class WebhookHandler:
     def _finalize_accept(self, checkpoint: AcceptCheckpoint) -> None:
         """Finalize accept after confirmation: calls Razorpay, updates exposure, and logs audit trail (Task 3)."""
         dispute_id = checkpoint.dispute_id
+        actor = checkpoint.confirmed_by or "human"
+        self.state_machine.transition(
+            dispute_id=dispute_id,
+            event=DisputeEvent.CONFIRM_ACCEPT,
+            actor=actor,
+            notes=f"accept_checkpoint_confirmed:{actor}",
+        )
+
         try:
             self.razorpay_client.accept_dispute(dispute_id)
         except Exception as e:
             logger.warning("Razorpay accept call failed for dispute %s: %s", dispute_id, e)
 
         # Update cumulative exposure store
-        evidence = checkpoint.evidence
-        buyer_id = evidence.get("buyer_identity", {})
-        vpa_h = buyer_id.get("vpa_hash", "default_vpa")
-        dev_h = buyer_id.get("device_fingerprint_hash", "default_dev")
+        evidence = checkpoint.evidence or {}
+        buyer_id = evidence.get("buyer_identity") or {}
+        vpa_h = buyer_id.get("vpa_hash") or "default_vpa"
+        dev_h = buyer_id.get("device_fingerprint_hash") or "default_dev"
         self.exposure_store.record_accept(vpa_h, dev_h, checkpoint.amount)
 
         # Remove from pending checkpoints
         self.pending_checkpoints.pop(dispute_id, None)
 
         # Audit-log the actual accept confirmation per Task 3
-        actor = checkpoint.confirmed_by or "human"
         self.audit_log.record(
             dispute_id=dispute_id,
             decision="accept",
@@ -237,6 +295,11 @@ class WebhookHandler:
             shap_values=checkpoint.shap_values,
             evidence=checkpoint.evidence,
             exposure_counter=checkpoint.exposure_counters,
+            event_type="action_execution",
+            recommendation="accept",
+            human_decision="accept",
+            razorpay_dispatched=True,
+            execution_status="executed",
         )
 
     def deadline_watchdog_tick(self, now_ts: Optional[int] = None) -> List[str]:
@@ -284,17 +347,29 @@ class WebhookHandler:
         if item is None:
             raise ValueError(f"Dispute {dispute_id} not found in escalation queue.")
 
-        evidence = item.get("evidence", {})
+        evidence = item.get("evidence") or {}
         if action == "accept":
+            self.state_machine.transition(
+                dispute_id=dispute_id,
+                event=DisputeEvent.RESOLVE_ACCEPT,
+                actor=actor,
+                notes="human_escalation_override:accept",
+            )
             try:
                 self.razorpay_client.accept_dispute(dispute_id)
             except Exception as e:
                 logger.warning("Razorpay accept call failed during escalation resolution for %s: %s", dispute_id, e)
-            buyer_id = evidence.get("buyer_identity", {})
-            vpa_h = buyer_id.get("vpa_hash", "default_vpa")
-            dev_h = buyer_id.get("device_fingerprint_hash", "default_dev")
+            buyer_id = evidence.get("buyer_identity") or {}
+            vpa_h = buyer_id.get("vpa_hash") or "default_vpa"
+            dev_h = buyer_id.get("device_fingerprint_hash") or "default_dev"
             self.exposure_store.record_accept(vpa_h, dev_h, item.get("amount", 0))
         else:
+            self.state_machine.transition(
+                dispute_id=dispute_id,
+                event=DisputeEvent.RESOLVE_CONTEST,
+                actor=actor,
+                notes="human_escalation_override:contest",
+            )
             contest_payload = assemble_contest_payload(evidence, human_notes=notes or None)
             self.razorpay_client.contest_dispute(dispute_id, contest_payload)
 
@@ -307,6 +382,11 @@ class WebhookHandler:
             shap_values=item.get("shap_values"),
             evidence=evidence,
             exposure_counter=item.get("exposure_counters"),
+            event_type="action_execution",
+            recommendation="escalate",
+            human_decision=action,
+            razorpay_dispatched=True,
+            execution_status="executed",
         )
 
         return {"status": f"escalation_resolved_{action}", "dispute_id": dispute_id, "actor": actor}

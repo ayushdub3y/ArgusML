@@ -56,6 +56,10 @@ class AppState:
     def razorpay_client(self) -> RazorpayClient:
         return self.handler.razorpay_client
 
+    @property
+    def state_machine(self) -> Any:
+        return self.handler.state_machine
+
 
 # Module-level singleton
 app_state = AppState()

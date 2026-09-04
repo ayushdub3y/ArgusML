@@ -11,7 +11,7 @@ import hashlib
 import hmac
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -45,6 +45,59 @@ def verify_webhook_signature(body_bytes: bytes, signature: Optional[str], secret
     return hmac.compare_digest(expected_sig, signature)
 
 
+def check_evidence_sufficiency(evidence: Dict[str, Any]) -> Tuple[bool, list, list]:
+    """Deterministically analyze whether merchant records contain affirmative proof of fulfillment.
+
+    Under NPCI UDIR dispute rules, contesting a Goods Not Delivered claim requires affirmative proof:
+    - For physical goods: confirmed delivery OTP or a courier POD document.
+    - For digital goods: confirmed voucher redemption timestamp.
+
+    Returns:
+        (is_sufficient, verified_facts, missing_facts)
+    """
+    if not evidence:
+        return False, [], ["No merchant fulfillment records found for order"]
+
+    fulfillment_type = evidence.get("fulfillment_type", "physical")
+    verified = []
+    missing = []
+
+    if fulfillment_type == "digital_voucher":
+        redemption_ts = evidence.get("digital_redemption_ts")
+        if redemption_ts:
+            verified.append(f"Digital voucher redeemed at Unix timestamp {redemption_ts}")
+            return True, verified, missing
+        else:
+            missing.append("digital redemption timestamp missing / unredeemed")
+            return False, verified, missing
+
+    # Physical goods
+    otp_confirmed = bool(evidence.get("delivery_otp_confirmed"))
+    pod_id = evidence.get("pod_document_id")
+    geotag = evidence.get("delivery_geotag")
+    delivery_ts = evidence.get("delivery_ts")
+
+    if otp_confirmed:
+        verified.append("delivery OTP confirmed by recipient")
+    else:
+        missing.append("delivery OTP unconfirmed")
+
+    if pod_id:
+        verified.append(f"courier POD document on file ({pod_id})")
+    else:
+        missing.append("courier POD document missing")
+
+    if geotag:
+        verified.append(f"delivery geotag recorded ({geotag})")
+
+    if delivery_ts:
+        verified.append(f"delivery recorded at timestamp {delivery_ts}")
+
+    # Sufficient if either delivery OTP is confirmed or courier POD document exists
+    is_sufficient = otp_confirmed or bool(pod_id)
+    return is_sufficient, verified, missing
+
+
 def build_contest_payload_from_evidence(
     evidence: Dict[str, Any],
     summary_text: Optional[str] = None,
@@ -54,16 +107,28 @@ def build_contest_payload_from_evidence(
     Builds typed evidence attachments (shipping_proof, digital redemption proof)
     purely from merchant source records without fabrication (§12).
     """
-    order_id = evidence.get("order_id", "unknown")
-    fulfillment_type = evidence.get("fulfillment_type", "physical")
+    order_id = evidence.get("order_id", "unknown") if evidence else "unknown"
+    fulfillment_type = evidence.get("fulfillment_type", "physical") if evidence else "physical"
+    is_sufficient, verified_facts, missing_facts = check_evidence_sufficiency(evidence)
+
+    if summary_text:
+        summary = summary_text
+    elif is_sufficient:
+        summary = f"Order {order_id} fulfillment verified per merchant records: {'; '.join(verified_facts)}."
+    else:
+        missing_desc = "; ".join(missing_facts) if missing_facts else "no proof of delivery on record"
+        summary = (
+            f"Merchant fulfillment records for Order {order_id} are incomplete ({missing_desc}). "
+            "Evidence is insufficient to substantiate an affirmative delivery contest under NPCI UDIR guidelines."
+        )
 
     payload: Dict[str, Any] = {
-        "summary": summary_text or f"Order {order_id} fulfilled legitimately per merchant records.",
+        "summary": summary,
     }
 
     if fulfillment_type == "digital_voucher":
-        redemption_ts = evidence.get("digital_redemption_ts")
-        if redemption_ts:
+        redemption_ts = evidence.get("digital_redemption_ts") if evidence else None
+        if redemption_ts and str(redemption_ts) not in payload["summary"]:
             payload["summary"] += f" Digital voucher redeemed at Unix timestamp {redemption_ts}."
         payload["digital_delivery"] = {
             "order_id": order_id,
@@ -74,13 +139,13 @@ def build_contest_payload_from_evidence(
         # Physical goods
         shipping_proof: Dict[str, Any] = {
             "order_id": order_id,
-            "dispatch_ts": evidence.get("dispatch_ts"),
-            "delivery_ts": evidence.get("delivery_ts"),
-            "delivery_otp_confirmed": bool(evidence.get("delivery_otp_confirmed")),
+            "dispatch_ts": evidence.get("dispatch_ts") if evidence else None,
+            "delivery_ts": evidence.get("delivery_ts") if evidence else None,
+            "delivery_otp_confirmed": bool(evidence.get("delivery_otp_confirmed")) if evidence else False,
         }
-        if evidence.get("pod_document_id"):
+        if evidence and evidence.get("pod_document_id"):
             shipping_proof["pod_document_id"] = evidence.get("pod_document_id")
-        if evidence.get("delivery_geotag"):
+        if evidence and evidence.get("delivery_geotag"):
             shipping_proof["delivery_geotag"] = evidence.get("delivery_geotag")
 
         payload["shipping_proof"] = shipping_proof
@@ -89,11 +154,15 @@ def build_contest_payload_from_evidence(
 
 
 class RazorpayClient:
-    """Razorpay Disputes API client with test-mode HTTP support and sandbox fallback (§13).
+    """Razorpay Disputes API client with official test-mode HTTP support and local sandbox fallback (§13).
 
-    When RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET environment variables are set,
-    makes real authenticated HTTP calls to Razorpay's test-mode API. Otherwise,
-    operates in sandbox mock mode for local development.
+    Integrates with Razorpay's Disputes API in **Test Mode** (using rzp_test_... keys).
+    Supports two operating modes:
+    1. **Official Test-Mode API**: When RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are configured,
+       executes real authenticated HTTP requests against https://api.razorpay.com/v1.
+       (Note: No real financial money or production bank accounts are debited/credited).
+    2. **Local Sandbox Mock**: When credentials are absent, logs the intent and returns
+       simulated responses for deterministic local testing, automated evaluation, and offline demo.
     """
 
     def __init__(
@@ -108,13 +177,18 @@ class RazorpayClient:
         self._is_live = bool(self.key_id and self.key_secret)
 
         if self._is_live:
-            logger.info("RazorpayClient initialized in TEST-MODE (live API calls enabled)")
+            logger.info("RazorpayClient initialized in OFFICIAL TEST-MODE (HTTP calls enabled to %s with test credentials)", self.base_url)
         else:
-            logger.info("RazorpayClient initialized in SANDBOX MODE (mock responses, no API calls)")
+            logger.info("RazorpayClient initialized in LOCAL SANDBOX MOCK MODE (simulated responses, no outbound network calls)")
 
     @property
     def is_live(self) -> bool:
-        """Whether real API calls are enabled."""
+        """Whether real HTTP calls to the Razorpay test-mode API are enabled."""
+        return self._is_live
+
+    @property
+    def is_test_mode(self) -> bool:
+        """Explicit alias indicating whether test-mode API calls are active."""
         return self._is_live
 
     def verify_webhook_signature(
